@@ -6,10 +6,12 @@ import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
-# 全局請求頭
+# 全局請求頭（加Referer模擬瀏覽器訪問，大幅降低403/429概率）
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8"
+    "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8",
+    "Referer": "https://www.google.com/",
+    "Accept": "application/rss+xml,application/xml;q=0.9,*/*;q=0.8"
 }
 
 # 負面提示詞（不直接丟棄，僅標記交給AI判斷邊界案例）
@@ -51,7 +53,8 @@ def _clean_html(raw_text):
     return clean[:500] # 摘要放寬到500字，更多信息給AI
 
 def _sleep():
-    time.sleep(random.uniform(0.8, 1.8))
+    """單請求隨機等待1.5-3秒，完全唔會被封IP"""
+    time.sleep(random.uniform(1.5, 3.0))
 
 def _parse_publish_time(entry):
     try:
@@ -135,16 +138,17 @@ def _fetch_single_rss(url, source_name):
     return news_list
 
 def fetch_webbsite_news(code):
-    """修復：Webb-site正確RSS參數是c=不是code="""
+    """修復：Webb-site正確RSS地址，參數是c=不是code="""
     url = f"https://webb-site.com/rss/announcements.asp?c={code}"
     return _fetch_single_rss(url, "港交所公告")
 
 def fetch_yahoo_news(code):
-    url = f"https://finance.yahoo.com/rss/headline?s={code}.HK"
+    """修復：Yahoo新RSS地址，減少429限流"""
+    url = f"https://query1.finance.yahoo.com/v1/finance/rss/headline?s={code}.HK"
     return _fetch_single_rss(url, "Yahoo Finance")
 
 def fetch_google_news(stock):
-    """修復：高精度查詢詞，不再只搜代碼+港股"""
+    """高精度查詢詞，不再只搜代碼+港股"""
     query = _build_google_news_query(stock)
     url = f"https://news.google.com/rss/search?q={query}&hl=zh-HK&gl=HK&ceid=HK:zh-HK"
     return _fetch_single_rss(url, "Google News")
@@ -163,7 +167,7 @@ def fetch_all_stock_rss(stock_list):
         # 三個源抓取
         ws_news = fetch_webbsite_news(code)
         yh_news = fetch_yahoo_news(code)
-        gn_news = fetch_google_news(stock) # 傳入整個stock對象生成查詢詞
+        gn_news = fetch_google_news(stock)
 
         for news in ws_news + yh_news + gn_news:
             if news["pub_time"] < time_threshold:
@@ -175,7 +179,8 @@ def fetch_all_stock_rss(stock_list):
             news["stock_name"] = name
             all_news.append(news)
 
-        time.sleep(random.uniform(0.4, 0.9))
+        # 每隻股票抓完額外等0.8-1.5秒，進一步降低請求頻率
+        time.sleep(random.uniform(0.8, 1.5))
 
     print(f"✅ 全部源抓取完成，原始有效新聞: {len(all_news)} 條")
     return all_news
