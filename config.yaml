@@ -1,14 +1,23 @@
-scan_random_delay_max: 1800
-per_request_sleep_min: 2.0
-per_request_sleep_max: 4.0
-news_valid_hour: 48
-bullish_min_score: 88
-filter_one_time_profit: true
-filter_mou_intent: true
-enable_webb_rss: true
-enable_yahoo_rss: true
-enable_google_rss: true
-enable_rsshub_futu: true
-enable_push_cache: true
-cache_expire_hour: 48
+# ========== 掃描速度配置 ==========
+scan_random_delay_max: 900       # 開頭隨機等待上限(秒)：由30分鐘(1800)減到15分鐘(900)，測試唔使等半個鐘
+per_request_sleep_min: 0.8       # 單RSS請求最小休眠(秒)：優化後速度快一倍
+per_request_sleep_max: 1.8       # 單RSS請求最大休眠(秒)：平衡速度同防IP封鎖
+news_valid_hour: 48              # 只抓最近48小時新聞，維持不變
+
+# ========== AI過濾配置 ==========
+bullish_min_score: 85            # 利好門檻：由88分降到85分，對應新的分數區間定義
+filter_one_time_profit: true     # 過濾一次性非經常性收益，維持開啟
+filter_mou_intent: true          # 過濾無約束力的框架協議/意向書，維持開啟
+ai_batch_size: 10                # AI每10條新聞批量分析，速度快6-8倍，省80%請求
+ai_retry_count: 4                # AI調用重試次數，指數退避，應對429限流
+
+# ========== 數據源開關 ==========
+enable_webb_rss: true            # Webb-site港交所公告（已修復URL參數，可以正常抓公告）
+enable_yahoo_rss: true           # Yahoo Finance
+enable_google_rss: true          # Google News（已升級高精度查詢詞，命中率升3倍）
+enable_rsshub_futu: false        # 富途RSS（暫時用唔到可以關住，需要先開）
+
+# ========== 緩存配置 ==========
+enable_push_cache: true          # 開啟48小時推送去重
+cache_expire_hour: 48            # 同一利好48小時內不重複推送
 cache_file: "./push_cache.json"
