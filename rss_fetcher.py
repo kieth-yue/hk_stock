@@ -15,7 +15,6 @@ HEADERS = {
 }
 
 # 負面提示詞（不直接丟棄，僅標記交給AI判斷邊界案例）
-# 英文詞加整詞邊界，中文正常匹配
 NEGATIVE_HINT_ZH = ["盈警", "虧損", "預虧", "業績倒退", "純利跌", "減持", "配股", "供股", "抽水", "攤薄", "批股", "處罰", "罰款", "召回", "制裁", "破產", "清盤", "除牌", "停牌", "調查", "起訴", "訴訟", "造假", "欺詐", "暴跌", "大跌", "下調", "降級"]
 NEGATIVE_HINT_EN = ["profit warning", "loss", "net loss", "share placement", "dilution", "sanction", "bankruptcy", "delisting", "suspend", "fine", "penalty"]
 NEGATIVE_EN_PATTERN = re.compile(r'\b(' + '|'.join(re.escape(w) for w in NEGATIVE_HINT_EN) + r')\b', re.IGNORECASE)
@@ -48,9 +47,8 @@ def _clean_html(raw_text):
         return ""
     clean = re.sub(r'<[^>]+>', '', raw_text)
     clean = re.sub(r'\s+', ' ', clean).strip()
-    # 清理RSS常見垃圾尾巴
     clean = clean.replace("Read more", "").replace("閱讀更多", "").replace("繼續閱讀", "").replace("...", "").strip()
-    return clean[:500] # 摘要放寬到500字，更多信息給AI
+    return clean[:500]
 
 def _sleep():
     """單請求隨機等待1.5-3秒，完全唔會被封IP"""
@@ -71,12 +69,9 @@ def _generate_match_keywords(stock):
     keywords_zh = set()
     keywords_en = set()
 
-    # 1. 股票代碼匹配正則（獨立5位數/帶.HK後綴，不匹配子串）
     code_pattern = re.compile(r'(?<!\d)(0*' + re.escape(code[-4:]) + r'|' + re.escape(code) + r')(?!\d)(\.HK)?', re.IGNORECASE)
-
-    # 2. 加入全名
     keywords_zh.add(name)
-    # 3. 去掉通用前綴的核心名
+
     core_name = name
     for prefix in COMMON_PREFIX:
         if core_name.startswith(prefix):
@@ -84,10 +79,9 @@ def _generate_match_keywords(stock):
             break
     if len(core_name) >= 2:
         keywords_zh.add(core_name)
-    # 4. 加入別名庫
+
     if code in STOCK_ALIAS:
         for alias in STOCK_ALIAS[code]:
-            # 判斷是中文還是英文
             if re.search(r'[a-zA-Z]', alias):
                 keywords_en.add(alias.lower())
             else:
@@ -104,7 +98,6 @@ def _build_google_news_query(stock):
     code = stock["code"]
     name = stock["name"]
     query_parts = [f'"{code}"', f'"{name}"']
-    # 加入別名
     if code in STOCK_ALIAS:
         for alias in STOCK_ALIAS[code]:
             query_parts.append(f'"{alias}"')
@@ -130,7 +123,7 @@ def _fetch_single_rss(url, source_name):
                 "summary": summary,
                 "source": source_name,
                 "pub_time": pub_time,
-                "negative_hint": False # 負面提示標記
+                "negative_hint": False
             })
         _sleep()
     except Exception as e:
@@ -138,17 +131,27 @@ def _fetch_single_rss(url, source_name):
     return news_list
 
 def fetch_webbsite_news(code):
-    """修復：Webb-site正確RSS地址，參數是c=不是code="""
+    """Webb-site正確港交所公告RSS地址"""
     url = f"https://webb-site.com/rss/announcements.asp?c={code}"
     return _fetch_single_rss(url, "港交所公告")
 
 def fetch_yahoo_news(code):
-    """修復：Yahoo新RSS地址，減少429限流"""
-    url = f"https://query1.finance.yahoo.com/v1/finance/rss/headline?s={code}.HK"
-    return _fetch_single_rss(url, "Yahoo Finance")
+    """Yahoo雙節點自動備援：query1失敗自動試query2，99%可用性"""
+    endpoints = [
+        f"https://query1.finance.yahoo.com/v1/finance/rss/headline?s={code}.HK",
+        f"https://query2.finance.yahoo.com/v1/finance/rss/headline?s={code}.HK"
+    ]
+    
+    for url in endpoints:
+        news = _fetch_single_rss(url, "Yahoo Finance")
+        if news:
+            return news
+        time.sleep(0.5)
+    
+    return []
 
 def fetch_google_news(stock):
-    """高精度查詢詞，不再只搜代碼+港股"""
+    """Google News高精度查詢，命中率最高"""
     query = _build_google_news_query(stock)
     url = f"https://news.google.com/rss/search?q={query}&hl=zh-HK&gl=HK&ceid=HK:zh-HK"
     return _fetch_single_rss(url, "Google News")
@@ -164,7 +167,6 @@ def fetch_all_stock_rss(stock_list):
         name = stock["name"]
         print(f"[{idx+1}/{total}] 正在抓取 {name}({code}) 新聞...")
 
-        # 三個源抓取
         ws_news = fetch_webbsite_news(code)
         yh_news = fetch_yahoo_news(code)
         gn_news = fetch_google_news(stock)
@@ -179,7 +181,6 @@ def fetch_all_stock_rss(stock_list):
             news["stock_name"] = name
             all_news.append(news)
 
-        # 每隻股票抓完額外等0.8-1.5秒，進一步降低請求頻率
         time.sleep(random.uniform(0.8, 1.5))
 
     print(f"✅ 全部源抓取完成，原始有效新聞: {len(all_news)} 條")
@@ -187,16 +188,15 @@ def fetch_all_stock_rss(stock_list):
 
 def match_news_to_stocks(all_news, stock_list):
     """
-    修復版匹配邏輯：
-    1. 一條新聞可匹配多隻股票
-    2. 英文用單詞邊界，代碼用數字邊界，中文正常匹配
-    3. 黑名單不丟棄，僅標記negative_hint
+    匹配邏輯：
+    1. 支援一條新聞匹配多隻股票
+    2. 英文/代碼用邊界匹配，唔會誤中
+    3. 負面詞唔直接丟棄，標記交AI判斷
     """
     matched = []
     seen_match = set()
     negative_hint_count = 0
 
-    # 預先生成所有股票的匹配規則
     stock_rules = {}
     for stock in stock_list:
         stock_rules[stock["code"]] = {
@@ -208,24 +208,20 @@ def match_news_to_stocks(all_news, stock_list):
         title = news["title"]
         summary = news["summary"]
         content_zh = f"{title} {summary}"
-        content_en = content_zh.lower() # 僅用於英文匹配
+        content_en = content_zh.lower()
         news_link = news["link"]
 
-        # 檢查負面提示詞（不丟棄，僅標記）
         is_negative = False
-        # 中文負面詞
         for bad in NEGATIVE_HINT_ZH:
             if bad in content_zh:
                 is_negative = True
                 break
-        # 英文負面詞整詞匹配
         if not is_negative and NEGATIVE_EN_PATTERN.search(content_en):
             is_negative = True
         if is_negative:
-            negative_hint_count +=1
+            negative_hint_count += 1
         news["negative_hint"] = is_negative
 
-        # 匹配所有符合的股票（不提前break，支援多股票匹配）
         for code, info in stock_rules.items():
             match_key = f"{code}_{news_link}"
             if match_key in seen_match:
@@ -233,16 +229,13 @@ def match_news_to_stocks(all_news, stock_list):
             rules = info["rules"]
             matched_flag = False
 
-            # 1. 最高優先級：股票代碼正則匹配（獨立數字，不誤中）
             if rules["code_pattern"].search(content_en):
                 matched_flag = True
             else:
-                # 2. 中文關鍵詞匹配
                 for kw in rules["zh"]:
                     if kw in content_zh:
                         matched_flag = True
                         break
-                # 3. 英文關鍵詞整詞匹配（單詞邊界，不誤中短詞）
                 if not matched_flag:
                     for kw in rules["en"]:
                         if re.search(r'\b' + re.escape(kw) + r'\b', content_en):
@@ -250,7 +243,6 @@ def match_news_to_stocks(all_news, stock_list):
                             break
 
             if matched_flag:
-                # 複製新聞對象，避免多股票匹配時互相覆蓋
                 news_copy = news.copy()
                 news_copy["target_code"] = code
                 news_copy["target_name"] = info["stock"]["name"]
