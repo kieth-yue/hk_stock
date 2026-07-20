@@ -38,7 +38,7 @@ def main():
     print("="*50)
 
     # 抓取所有RSS新聞
-    all_raw_news = fetch_all_stock_rss(stock_list, config)
+    all_raw_news = fetch_all_stock_rss(stock_list)
     print(f"✅ 抓取原始新聞總數：{len(all_raw_news)}")
 
     # 雙重匹配新聞
