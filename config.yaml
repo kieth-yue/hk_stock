@@ -1,0 +1,14 @@
+scan_random_delay_max: 1800
+per_request_sleep_min: 2.0
+per_request_sleep_max: 4.0
+news_valid_hour: 48
+bullish_min_score: 88
+filter_one_time_profit: true
+filter_mou_intent: true
+enable_webb_rss: true
+enable_yahoo_rss: true
+enable_google_rss: true
+enable_rsshub_futu: true
+enable_push_cache: true
+cache_expire_hour: 48
+cache_file: "./push_cache.json"
