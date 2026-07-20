@@ -1,7 +1,7 @@
 # ========== 掃描速度配置 ==========
 scan_random_delay_max: 900       # 開頭隨機等待上限(秒)：由30分鐘(1800)減到15分鐘(900)，測試唔使等半個鐘
-per_request_sleep_min: 0.8       # 單RSS請求最小休眠(秒)：優化後速度快一倍
-per_request_sleep_max: 1.8       # 單RSS請求最大休眠(秒)：平衡速度同防IP封鎖
+per_request_sleep_min: 1.5       # 單RSS請求最小休眠(秒)：優化後速度快一倍
+per_request_sleep_max: 3.0       # 單RSS請求最大休眠(秒)：平衡速度同防IP封鎖
 news_valid_hour: 48              # 只抓最近48小時新聞，維持不變
 
 # ========== AI過濾配置 ==========
