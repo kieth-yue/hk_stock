@@ -6,11 +6,10 @@ import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
-# 全局請求頭（模擬瀏覽器，合法合規訪問公開RSS）
+# 全局請求頭（光明正大標明係個人非商業RSS訂閱，符合網絡禮儀，唔會被當成惡意爬蟲）
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (compatible; PersonalStockMonitor/1.0; RSS Feed Reader; Non-commercial personal use)",
     "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8",
-    "Referer": "https://www.google.com/",
     "Accept": "application/rss+xml,application/xml;q=0.9,*/*;q=0.8"
 }
 
