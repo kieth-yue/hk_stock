@@ -10,14 +10,14 @@ news_valid_hour: 48               # 僅抓最近48小時新聞
 bullish_min_score: 85             # 利好分數門檻
 filter_one_time_profit: true      # 過濾一次性收益
 filter_mou_intent: true           # 過濾無約束力意向書
-ai_batch_size: 20                 # AI每20條批量分析，減少請求
+ai_batch_size: 30                 # AI每30條批量分析，大幅減少請求次數唔會限流
 ai_retry_count: 3                 # 指數退避重試3次
-# ========== 數據源開關
-enable_webb_rss: false            # Webb-site封雲端IP，關閉
-enable_rsshub_hkex: true          # RSSHub港交所披露易公告（第一手備份）
-enable_aastocks_rss: true         # AASTOCKS本地財經快訊
-enable_yahoo_rss: false           # Yahoo Finance雲端IP被封
-enable_google_rss: true           # Google News全網聚合
+# ========== 數據源開關（只留兩個最穩定的源）
+enable_webb_rss: false            # Webb-site封雲端IP
+enable_rsshub_hkex: false         # 公共RSSHub不穩定，關閉
+enable_aastocks_rss: true         # AASTOCKS本地財經+公告，穩定
+enable_yahoo_rss: false           # Yahoo封雲端IP
+enable_google_rss: true           # Google News全網聚合，穩定
 # ========== 緩存配置
 enable_push_cache: true
 cache_expire_hour: 48
