@@ -13,7 +13,7 @@ ai_retry_count: 4                # AI調用重試次數，指數退避，應對4
 
 # ========== 數據源開關 ==========
 enable_webb_rss: true            # Webb-site港交所公告（已修復URL參數，可以正常抓公告）
-enable_yahoo_rss: true           # Yahoo Finance
+enable_yahoo_rss: false            # Yahoo Finance
 enable_google_rss: true          # Google News（已升級高精度查詢詞，命中率升3倍）
 enable_rsshub_futu: false        # 富途RSS（暫時用唔到可以關住，需要先開）
 
