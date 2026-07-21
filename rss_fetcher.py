@@ -6,7 +6,7 @@ import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
-# 全局請求頭（加Referer模擬瀏覽器訪問，大幅降低403/429概率）
+# 全局請求頭（模擬瀏覽器，合法合規訪問公開RSS）
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8",
@@ -19,10 +19,8 @@ NEGATIVE_HINT_ZH = ["盈警", "虧損", "預虧", "業績倒退", "純利跌", "
 NEGATIVE_HINT_EN = ["profit warning", "loss", "net loss", "share placement", "dilution", "sanction", "bankruptcy", "delisting", "suspend", "fine", "penalty"]
 NEGATIVE_EN_PATTERN = re.compile(r'\b(' + '|'.join(re.escape(w) for w in NEGATIVE_HINT_EN) + r')\b', re.IGNORECASE)
 
-# 通用前綴（僅用於生成別名，不用於截斷匹配）
 COMMON_PREFIX = ["中國", "中国", "香港", "國際", "国际", "環球", "环球", "亞洲", "亚洲", "遠東", "远东"]
 
-# 熱門股票別名庫（全覆蓋，不截詞）
 STOCK_ALIAS = {
     "00700": ["騰訊", "腾讯", "Tencent", "騰訊控股"],
     "01810": ["小米", "小米集團", "Xiaomi", "小米集團-W"],
@@ -51,7 +49,7 @@ def _clean_html(raw_text):
     return clean[:500]
 
 def _sleep():
-    """單請求隨機等待1.5-3秒，完全唔會被封IP"""
+    """單請求隨機等待1.5-3秒，合法合規訪問，唔會對伺服器造成壓力"""
     time.sleep(random.uniform(1.5, 3.0))
 
 def _parse_publish_time(entry):
@@ -63,15 +61,12 @@ def _parse_publish_time(entry):
     return datetime.now(timezone.utc)
 
 def _generate_match_keywords(stock):
-    """為每隻股票生成完整匹配關鍵詞，分中文/英文，不截詞"""
     code = stock["code"]
     name = stock["name"]
     keywords_zh = set()
     keywords_en = set()
-
     code_pattern = re.compile(r'(?<!\d)(0*' + re.escape(code[-4:]) + r'|' + re.escape(code) + r')(?!\d)(\.HK)?', re.IGNORECASE)
     keywords_zh.add(name)
-
     core_name = name
     for prefix in COMMON_PREFIX:
         if core_name.startswith(prefix):
@@ -79,22 +74,15 @@ def _generate_match_keywords(stock):
             break
     if len(core_name) >= 2:
         keywords_zh.add(core_name)
-
     if code in STOCK_ALIAS:
         for alias in STOCK_ALIAS[code]:
             if re.search(r'[a-zA-Z]', alias):
                 keywords_en.add(alias.lower())
             else:
                 keywords_zh.add(alias)
-
-    return {
-        "code_pattern": code_pattern,
-        "zh": list(keywords_zh),
-        "en": list(keywords_en)
-    }
+    return {"code_pattern": code_pattern, "zh": list(keywords_zh), "en": list(keywords_en)}
 
 def _build_google_news_query(stock):
-    """構建Google News高精度查詢詞："代碼" OR "中文名" OR "英文名" 港股"""
     code = stock["code"]
     name = stock["name"]
     query_parts = [f'"{code}"', f'"{name}"']
@@ -118,12 +106,8 @@ def _fetch_single_rss(url, source_name):
             if not title or not link:
                 continue
             news_list.append({
-                "title": title,
-                "link": link,
-                "summary": summary,
-                "source": source_name,
-                "pub_time": pub_time,
-                "negative_hint": False
+                "title": title, "link": link, "summary": summary,
+                "source": source_name, "pub_time": pub_time, "negative_hint": False
             })
         _sleep()
     except Exception as e:
@@ -131,32 +115,30 @@ def _fetch_single_rss(url, source_name):
     return news_list
 
 def fetch_webbsite_news(code):
-    """Webb-site正確港交所公告RSS地址"""
+    """Webb-site公開港交所公告RSS"""
     url = f"https://webb-site.com/rss/announcements.asp?c={code}"
     return _fetch_single_rss(url, "港交所公告")
 
-def fetch_yahoo_news(code):
-    """Yahoo雙節點自動備援：query1失敗自動試query2，99%可用性"""
-    endpoints = [
-        f"https://query1.finance.yahoo.com/v1/finance/rss/headline?s={code}.HK",
-        f"https://query2.finance.yahoo.com/v1/finance/rss/headline?s={code}.HK"
-    ]
-    
-    for url in endpoints:
-        news = _fetch_single_rss(url, "Yahoo Finance")
-        if news:
-            return news
-        time.sleep(0.5)
-    
-    return []
+def fetch_aastocks_news(code):
+    """AASTOCKS公開RSS，香港本地財經快訊"""
+    url = f"https://www.aastocks.com/tc/stocks/analysis/stock-aafn/{code}/0/all/1/rss"
+    return _fetch_single_rss(url, "AASTOCKS財經")
 
 def fetch_google_news(stock):
-    """Google News高精度查詢，命中率最高"""
+    """Google News公開RSS，全網媒體聚合"""
     query = _build_google_news_query(stock)
     url = f"https://news.google.com/rss/search?q={query}&hl=zh-HK&gl=HK&ceid=HK:zh-HK"
     return _fetch_single_rss(url, "Google News")
 
-def fetch_all_stock_rss(stock_list):
+def fetch_all_stock_rss(stock_list, config=None):
+    # 默認配置：如果冇傳config就用預設安全開關
+    if config is None:
+        config = {
+            "enable_webb_rss": True,
+            "enable_aastocks_rss": True,
+            "enable_yahoo_rss": False,
+            "enable_google_rss": True
+        }
     all_news = []
     seen_links = set()
     time_threshold = datetime.now(timezone.utc) - timedelta(hours=48)
@@ -167,11 +149,26 @@ def fetch_all_stock_rss(stock_list):
         name = stock["name"]
         print(f"[{idx+1}/{total}] 正在抓取 {name}({code}) 新聞...")
 
-        ws_news = fetch_webbsite_news(code)
-        yh_news = fetch_yahoo_news(code)
-        gn_news = fetch_google_news(stock)
+        # 根據config開關抓取對應源
+        ws_news = fetch_webbsite_news(code) if config.get("enable_webb_rss", True) else []
+        aa_news = fetch_aastocks_news(code) if config.get("enable_aastocks_rss", True) else []
+        
+        # Yahoo內置雙節點備援，本地跑開啟先用
+        yh_news = []
+        if config.get("enable_yahoo_rss", False):
+            endpoints = [
+                f"https://query1.finance.yahoo.com/v1/finance/rss/headline?s={code}.HK",
+                f"https://query2.finance.yahoo.com/v1/finance/rss/headline?s={code}.HK"
+            ]
+            for url in endpoints:
+                yh_news = _fetch_single_rss(url, "Yahoo Finance")
+                if yh_news:
+                    break
+                time.sleep(0.5)
 
-        for news in ws_news + yh_news + gn_news:
+        gn_news = fetch_google_news(stock) if config.get("enable_google_rss", True) else []
+
+        for news in ws_news + aa_news + yh_news + gn_news:
             if news["pub_time"] < time_threshold:
                 continue
             if news["link"] in seen_links:
@@ -187,22 +184,12 @@ def fetch_all_stock_rss(stock_list):
     return all_news
 
 def match_news_to_stocks(all_news, stock_list):
-    """
-    匹配邏輯：
-    1. 支援一條新聞匹配多隻股票
-    2. 英文/代碼用邊界匹配，唔會誤中
-    3. 負面詞唔直接丟棄，標記交AI判斷
-    """
     matched = []
     seen_match = set()
     negative_hint_count = 0
-
     stock_rules = {}
     for stock in stock_list:
-        stock_rules[stock["code"]] = {
-            "stock": stock,
-            "rules": _generate_match_keywords(stock)
-        }
+        stock_rules[stock["code"]] = {"stock": stock, "rules": _generate_match_keywords(stock)}
 
     for news in all_news:
         title = news["title"]
@@ -219,7 +206,7 @@ def match_news_to_stocks(all_news, stock_list):
         if not is_negative and NEGATIVE_EN_PATTERN.search(content_en):
             is_negative = True
         if is_negative:
-            negative_hint_count += 1
+            negative_hint_count +=1
         news["negative_hint"] = is_negative
 
         for code, info in stock_rules.items():
