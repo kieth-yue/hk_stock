@@ -73,7 +73,7 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
 {negative_tip}
 """)
     prompt = "\n".join(prompt_parts)
-    # 限流重試：第一次等60秒，第二次120秒，足夠免費額度恢復
+    # 重試剛好卡限流窗口：第一次等60秒（過一分鐘限流重置），第二次等120秒
     backoff_times = [60, 120]
     for wait_time in backoff_times:
         try:
@@ -92,11 +92,11 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
         except Exception as e:
             err_msg = str(e)[:120]
             if "429" in err_msg or "quota" in err_msg.lower():
-                print(f"[限流] 免費額度用盡，等待{wait_time}秒後重試...")
+                print(f"[限流] 免費額度重置中，等待{wait_time}秒後重試...")
             else:
                 print(f"[重試] 調用失敗，等待{wait_time}秒: {err_msg}")
             time.sleep(wait_time)
-    # 重試失敗返回默認值
+    # 重試失敗返回提示
     if "風控" in system_prompt:
         return [{"risk_warning": "⚠️ 風險分析失敗，請自行查證"} for _ in news_batch]
     return [{"is_major_bullish": False, "score": 0} for _ in news_batch]
@@ -105,8 +105,8 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
     client = genai.Client(api_key=api_key)
     valid_bullish = []
     total = len(news_list)
-    # 每批30條，大幅減少請求次數唔會限流
-    batch_size = 30
+    # 每批35條，平衡請求次數同JSON準確度
+    batch_size = 35
     for batch_idx in range(0, total, batch_size):
         batch = news_list[batch_idx:batch_idx+batch_size]
         batch_start = batch_idx + 1
@@ -131,10 +131,10 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
             if result["is_major_bullish"] and result["score"] >= threshold and result["confidence"] >= 70:
                 valid_bullish.append(result)
                 print(f"✅ 發現重大利好: {result['target_name']} {result['score']}分 {result['category']} | 緊急度:{result['urgency']}")
-        # 每次請求後等5秒，唔會觸發限流
-        time.sleep(5)
+        # 每次請求後等6秒，分散請求唔會撞限流
+        time.sleep(6)
 
-    # 風險分析：永遠只需要1次請求
+    # 風險分析永遠1次請求
     if valid_bullish:
         print("="*50)
         print(f"開始對{len(valid_bullish)}隻利好股票做批量風險分析...")
@@ -161,7 +161,7 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
             else:
                 bull["risk_warning"] = "⚠️ 風險分析失敗，請自行查證"
             print(f"⚠️  {bull['target_name']} 風險: {bull['risk_warning']}")
-        time.sleep(5)
+        time.sleep(6)
 
     urgency_order = {"Immediate": 0, "1-3 Days": 1, "Long Term": 2}
     valid_bullish.sort(key=lambda x: (urgency_order.get(x["urgency"], 3), -x["score"]))
