@@ -1,4 +1,5 @@
 import requests
+from datetime import datetime, timedelta, timezone
 
 def send_feishu_card(news_list, webhook_url):
     unique_news = []
@@ -10,8 +11,13 @@ def send_feishu_card(news_list, webhook_url):
             unique_news.append(news)
     news_list = unique_news
 
+    # 計算香港時間（UTC+8）
+    hk_tz = timezone(timedelta(hours=8))
+    push_time = datetime.now(hk_tz).strftime("%Y-%m-%d %H:%M")
+
     elements = [
         {"tag": "div", "text": {"tag": "lark_md", "content": f"**📢 本輪掃描發現 {len(news_list)} 隻股票重大利好催化劑**"}},
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"⏰ 推送時間：**{push_time}** 香港時間"}},
         {"tag": "hr"}
     ]
 
