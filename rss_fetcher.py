@@ -4,16 +4,16 @@ import time
 import random
 import re
 import urllib.parse
+import os
 from datetime import datetime, timedelta, timezone
 
-# 全局請求頭（光明正大標明係個人非商業RSS訂閱）
+# 全局請求頭
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; PersonalStockMonitor/1.0; RSS Feed Reader; Non-commercial personal use)",
     "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8",
     "Accept": "application/rss+xml,application/xml;q=0.9,*/*;q=0.8"
 }
 
-# 負面提示詞（不直接丟棄，僅標記交給AI判斷）
 NEGATIVE_HINT_ZH = ["盈警", "虧損", "預虧", "業績倒退", "純利跌", "減持", "配股", "供股", "抽水", "攤薄", "批股", "處罰", "罰款", "召回", "制裁", "破產", "清盤", "除牌", "停牌", "調查", "起訴", "訴訟", "造假", "欺詐", "暴跌", "大跌", "下調", "降級"]
 NEGATIVE_HINT_EN = ["profit warning", "loss", "net loss", "share placement", "dilution", "sanction", "bankruptcy", "delisting", "suspend", "fine", "penalty"]
 NEGATIVE_EN_PATTERN = re.compile(r'\b(' + '|'.join(re.escape(w) for w in NEGATIVE_HINT_EN) + r')\b', re.IGNORECASE)
@@ -37,6 +37,10 @@ STOCK_ALIAS = {
     "00002": ["中電", "中電控股", "CLP Holdings"],
     "00016": ["新鴻基", "新鴻基地產", "SHK Properties"]
 }
+
+# 從環境變數強制讀源地址，代碼入面完全唔顯示真實地址
+AASTOCKS_BASE = os.environ["AASTOCKS_RSS_BASE"]
+GOOGLE_NEWS_BASE = os.environ["GOOGLE_NEWS_RSS_BASE"]
 
 def _clean_html(raw_text):
     if not raw_text:
@@ -111,29 +115,19 @@ def _fetch_single_rss(url, source_name):
         print(f"[警告] 抓取 {source_name} 失敗: {str(e)[:80]}")
     return news_list
 
-def fetch_rsshub_hkex_news(code):
-    """RSSHub港交所披露易公告，直接從港交所抓第一手公告，備份源"""
-    url = f"https://rsshub.app/hkex/announcement/{code}"
-    return _fetch_single_rss(url, "港交所公告")
-
 def fetch_aastocks_news(code):
-    """AASTOCKS公開RSS，香港本地財經快訊"""
-    url = f"https://www.aastocks.com/tc/stocks/analysis/stock-aafn/{code}/0/all/1/rss"
+    url = f"{AASTOCKS_BASE}{code}/0/all/1/rss"
     return _fetch_single_rss(url, "AASTOCKS財經")
 
 def fetch_google_news(stock):
-    """Google News公開RSS，全網媒體聚合"""
     query = _build_google_news_query(stock)
-    url = f"https://news.google.com/rss/search?q={query}&hl=zh-HK&gl=HK&ceid=HK:zh-HK"
+    url = f"{GOOGLE_NEWS_BASE}{query}&hl=zh-HK&gl=HK&ceid=HK:zh-HK"
     return _fetch_single_rss(url, "Google News")
 
 def fetch_all_stock_rss(stock_list, config=None):
     if config is None:
         config = {
-            "enable_webb_rss": False,
-            "enable_rsshub_hkex": True,
             "enable_aastocks_rss": True,
-            "enable_yahoo_rss": False,
             "enable_google_rss": True,
             "crawl_batch_size": 10,
             "batch_sleep_min": 5,
@@ -144,7 +138,6 @@ def fetch_all_stock_rss(stock_list, config=None):
     time_threshold = datetime.now(timezone.utc) - timedelta(hours=48)
     total = len(stock_list)
 
-    # 隨機打亂股票順序
     shuffled_stocks = stock_list.copy()
     random.shuffle(shuffled_stocks)
     batch_size = config.get("crawl_batch_size", 10)
@@ -156,12 +149,10 @@ def fetch_all_stock_rss(stock_list, config=None):
         name = stock["name"]
         print(f"[{idx+1}/{total}] 正在抓取 {name}({code}) 新聞...")
 
-        # 根據開關抓取源
-        hkex_news = fetch_rsshub_hkex_news(code) if config.get("enable_rsshub_hkex", True) else []
         aa_news = fetch_aastocks_news(code) if config.get("enable_aastocks_rss", True) else []
         gn_news = fetch_google_news(stock) if config.get("enable_google_rss", True) else []
 
-        for news in hkex_news + aa_news + gn_news:
+        for news in aa_news + gn_news:
             if news["pub_time"] < time_threshold:
                 continue
             if news["link"] in seen_links:
@@ -173,7 +164,6 @@ def fetch_all_stock_rss(stock_list, config=None):
 
         _sleep(0.8, 1.5)
 
-        # 分批休息
         if (idx + 1) % batch_size == 0 and (idx + 1) != total:
             batch_wait = random.randint(batch_sleep_min, batch_sleep_max)
             print(f"⏸️  完成一批{batch_size}隻股票，休息{batch_wait}秒再繼續...")
