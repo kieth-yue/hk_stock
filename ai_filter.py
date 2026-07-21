@@ -73,8 +73,8 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
 {negative_tip}
 """)
     prompt = "\n".join(prompt_parts)
-    # 免費版限流重試：第一次等30秒，第二次等60秒，第三次等120秒，足夠恢復
-    backoff_times = [30, 60, 120]
+    # 限流重試：第一次等60秒，第二次120秒，足夠免費額度恢復
+    backoff_times = [60, 120]
     for wait_time in backoff_times:
         try:
             resp = client.models.generate_content(
@@ -96,15 +96,17 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
             else:
                 print(f"[重試] 調用失敗，等待{wait_time}秒: {err_msg}")
             time.sleep(wait_time)
-    # 重試失敗返回默認值，不崩潰
+    # 重試失敗返回默認值
+    if "風控" in system_prompt:
+        return [{"risk_warning": "⚠️ 風險分析失敗，請自行查證"} for _ in news_batch]
     return [{"is_major_bullish": False, "score": 0} for _ in news_batch]
 
 def analyze_news_batch(news_list, all_news, api_key, threshold=85):
     client = genai.Client(api_key=api_key)
     valid_bullish = []
     total = len(news_list)
-    # 每批20條新聞，最大化單次請求處理量，減少總請求數
-    batch_size = 20
+    # 每批30條，大幅減少請求次數唔會限流
+    batch_size = 30
     for batch_idx in range(0, total, batch_size):
         batch = news_list[batch_idx:batch_idx+batch_size]
         batch_start = batch_idx + 1
@@ -129,10 +131,10 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
             if result["is_major_bullish"] and result["score"] >= threshold and result["confidence"] >= 70:
                 valid_bullish.append(result)
                 print(f"✅ 發現重大利好: {result['target_name']} {result['score']}分 {result['category']} | 緊急度:{result['urgency']}")
-        # 每次請求後等3秒，控制每分鐘請求數<15，唔觸發免費版限流
-        time.sleep(3)
+        # 每次請求後等5秒，唔會觸發限流
+        time.sleep(5)
 
-    # 風險分析：所有股票一次打包，永遠只需要1次請求
+    # 風險分析：永遠只需要1次請求
     if valid_bullish:
         print("="*50)
         print(f"開始對{len(valid_bullish)}隻利好股票做批量風險分析...")
@@ -140,7 +142,6 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
         risk_input = []
         for bull in valid_bullish:
             code = bull["target_code"]
-            # 每隻股票拿最近3條新聞做風險分析
             related_news = [n for n in all_news if n["stock_code"] == code][:3]
             if related_news:
                 risk_input.extend(related_news)
@@ -153,15 +154,14 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
                     "title": "近期無相關新聞",
                     "summary": ""
                 })
-        # 一次請求分析所有風險
         risk_results = _call_gemini_with_backoff(client, risk_input, RISK_BATCH_PROMPT)
         for i, bull in enumerate(valid_bullish):
             if i < len(risk_results):
-                bull["risk_warning"] = risk_results[i].get("risk_warning", "風險分析失敗")
+                bull["risk_warning"] = risk_results[i].get("risk_warning", "⚠️ 風險分析失敗，請自行查證")
             else:
-                bull["risk_warning"] = "近期未見明顯利空"
+                bull["risk_warning"] = "⚠️ 風險分析失敗，請自行查證"
             print(f"⚠️  {bull['target_name']} 風險: {bull['risk_warning']}")
-        time.sleep(3)
+        time.sleep(5)
 
     urgency_order = {"Immediate": 0, "1-3 Days": 1, "Long Term": 2}
     valid_bullish.sort(key=lambda x: (urgency_order.get(x["urgency"], 3), -x["score"]))
