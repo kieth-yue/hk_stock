@@ -1,4 +1,4 @@
-name: 港股利好監控（新版300-400隻RSS掃描）
+name: hk_stock_rss
 
 on:
   schedule:
