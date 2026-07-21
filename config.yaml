@@ -2,7 +2,7 @@
 scan_random_delay_max: 900        # 開頭隨機等待0-15分鐘錯峰
 per_request_sleep_min: 1.5        # 單RSS請求最小休眠1.5秒
 per_request_sleep_max: 3.0        # 單RSS請求最大休眠3秒
-crawl_batch_size: 10              # 每批爬多少隻股票，打散請求節奏
+crawl_batch_size: 10              # 每批爬多少隻股票
 batch_sleep_min: 5                # 每批爬完最小等待5秒
 batch_sleep_max: 10               # 每批爬完最大等待10秒
 news_valid_hour: 48               # 僅抓最近48小時新聞
@@ -10,14 +10,14 @@ news_valid_hour: 48               # 僅抓最近48小時新聞
 bullish_min_score: 85             # 利好分數門檻
 filter_one_time_profit: true      # 過濾一次性收益
 filter_mou_intent: true           # 過濾無約束力意向書
-ai_batch_size: 10                 # AI每10條批量調用
-ai_retry_count: 4                 # 指數退避重試4次
+ai_batch_size: 20                 # AI每20條批量分析，減少請求
+ai_retry_count: 3                 # 指數退避重試3次
 # ========== 數據源開關
-enable_webb_rss: false             # Webb-site港交所公告
+enable_webb_rss: false            # Webb-site封雲端IP，關閉
+enable_rsshub_hkex: true          # RSSHub港交所披露易公告（第一手備份）
 enable_aastocks_rss: true         # AASTOCKS本地財經快訊
-enable_yahoo_rss: false           # Yahoo Finance（雲端IP被封，本地跑先開）
+enable_yahoo_rss: false           # Yahoo Finance雲端IP被封
 enable_google_rss: true           # Google News全網聚合
-enable_rsshub_futu: false         # 富途RSS
 # ========== 緩存配置
 enable_push_cache: true
 cache_expire_hour: 48
