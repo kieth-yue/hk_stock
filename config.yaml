@@ -10,7 +10,7 @@ news_valid_hour: 48               # 僅抓最近48小時新聞
 bullish_min_score: 85             # 利好分數門檻
 filter_one_time_profit: true      # 過濾一次性收益
 filter_mou_intent: true           # 過濾無約束力意向書
-ai_batch_size: 30                 # AI每30條批量分析，大幅減少請求次數唔會限流
+ai_batch_size: 35                 # AI每30條批量分析，大幅減少請求次數唔會限流
 ai_retry_count: 3                 # 指數退避重試3次
 # ========== 數據源開關（只留兩個最穩定的源）
 enable_webb_rss: false            # Webb-site
