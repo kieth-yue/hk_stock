@@ -73,7 +73,6 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
 {negative_tip}
 """)
     prompt = "\n".join(prompt_parts)
-    # 重試剛好卡限流窗口：第一次等60秒（過一分鐘限流重置），第二次等120秒
     backoff_times = [60, 120]
     for wait_time in backoff_times:
         try:
@@ -96,7 +95,6 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
             else:
                 print(f"[重試] 調用失敗，等待{wait_time}秒: {err_msg}")
             time.sleep(wait_time)
-    # 重試失敗返回提示
     if "風控" in system_prompt:
         return [{"risk_warning": "⚠️ 風險分析失敗，請自行查證"} for _ in news_batch]
     return [{"is_major_bullish": False, "score": 0} for _ in news_batch]
@@ -105,7 +103,6 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
     client = genai.Client(api_key=api_key)
     valid_bullish = []
     total = len(news_list)
-    # 每批35條，平衡請求次數同JSON準確度
     batch_size = 35
     for batch_idx in range(0, total, batch_size):
         batch = news_list[batch_idx:batch_idx+batch_size]
@@ -131,10 +128,18 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
             if result["is_major_bullish"] and result["score"] >= threshold and result["confidence"] >= 70:
                 valid_bullish.append(result)
                 print(f"✅ 發現重大利好: {result['target_name']} {result['score']}分 {result['category']} | 緊急度:{result['urgency']}")
-        # 每次請求後等6秒，分散請求唔會撞限流
         time.sleep(6)
 
-    # 風險分析永遠1次請求
+    # 【新增】按股票代碼去重，同一隻股票只留最高分的一條，唔會重複推送
+    bullish_dict = {}
+    for item in valid_bullish:
+        code = item["target_code"]
+        if code not in bullish_dict or item["score"] > bullish_dict[code]["score"]:
+            bullish_dict[code] = item
+    valid_bullish = list(bullish_dict.values())
+    print(f"✅ 去重後有效利好: {len(valid_bullish)} 隻股票")
+
+    # 風險分析：每隻股票只拿最新1條新聞，輸入輸出數量完全對應
     if valid_bullish:
         print("="*50)
         print(f"開始對{len(valid_bullish)}隻利好股票做批量風險分析...")
@@ -142,9 +147,11 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
         risk_input = []
         for bull in valid_bullish:
             code = bull["target_code"]
-            related_news = [n for n in all_news if n["stock_code"] == code][:3]
+            related_news = [n for n in all_news if n["stock_code"] == code]
             if related_news:
-                risk_input.extend(related_news)
+                # 按時間倒序，拿最新的1條新聞
+                related_news.sort(key=lambda x: x["pub_time"], reverse=True)
+                risk_input.append(related_news[0])
             else:
                 risk_input.append({
                     "stock_name": bull["target_name"],
