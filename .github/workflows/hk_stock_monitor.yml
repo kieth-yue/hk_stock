@@ -1,8 +1,15 @@
 name: hk_news
+
 on:
   schedule:
     - cron: '0 */6 * * *' # 每6小时自动运行（UTC时间，对应香港时间8/14/20/2点）
   workflow_dispatch: # 保留手动触发
+
+# 並發控制：同一時間只跑一個任務，有新任務自動取消舊任務，防止重複運行/重複推送
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 jobs:
   scan_task:
     runs-on: ubuntu-latest
