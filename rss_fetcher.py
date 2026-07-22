@@ -96,7 +96,8 @@ def _build_google_news_query(stock):
 def _fetch_single_rss(url, source_name):
     news_list = []
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        # 超時時間調到20秒，減少偶發超時
+        resp = requests.get(url, headers=HEADERS, timeout=20)
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
         for entry in feed.entries:
