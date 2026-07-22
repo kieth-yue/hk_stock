@@ -1,38 +1,33 @@
-name: hk_stock_rss
-
+name: 港股利好監控（新版300-400隻RSS掃描）
 on:
   schedule:
-    - cron: '0 */6 * * *'
-  workflow_dispatch:
-
+    - cron: '0 */6 * * *' # 每6小时自动运行（UTC时间，对应香港时间8/14/20/2点）
+  workflow_dispatch: # 保留手动触发
 jobs:
   scan_task:
     runs-on: ubuntu-latest
-    timeout-minutes: 45 # 超時保護：最多跑30分鐘自動停止，避免程式卡死浪費額度
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
       - name: 配置Python3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: 安裝依賴套件
         run: pip install -r requirements.txt
-
-      - name: 讀取推送緩存（避免48小時內重複推送同一利好）
+      - name: 讀取推送緩存（48小時去重）
         uses: actions/cache@v4
         with:
           path: push_cache.json
           key: ${{ runner.os }}-stock-bullish-cache
-
-      - name: 執行港股新聞掃描與AI分析
+      - name: 執行掃描與AI分析
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           STOCK_POOL: ${{ secrets.STOCK_POOL }}
+          AASTOCKS_RSS_BASE: ${{ secrets.AASTOCKS_RSS_BASE }}
+          GOOGLE_NEWS_RSS_BASE: ${{ secrets.GOOGLE_NEWS_RSS_BASE }}
         run: python main.py
-
       - name: 保存推送緩存
         uses: actions/cache@v4
         with:
