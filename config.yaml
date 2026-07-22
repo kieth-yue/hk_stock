@@ -1,5 +1,5 @@
 # ========== 掃描速度配置（防封優先）
-scan_random_delay_max: 900        # 開頭隨機等待0-15分鐘錯峰
+scan_random_delay_max: 600        # 開頭隨機等待0-15分鐘錯峰
 per_request_sleep_min: 1.5        # 單RSS請求最小休眠1.5秒
 per_request_sleep_max: 3.0        # 單RSS請求最大休眠3秒
 crawl_batch_size: 10              # 每批爬多少隻股票
