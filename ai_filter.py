@@ -1,8 +1,8 @@
+import json
+import re
+import time
 from google import genai
 from google.genai import types
-import json
-import time
-import re
 
 SYSTEM_PROMPT = """
 你是港股事件驅動對沖基金經理，專門從新聞中篩選未來48小時-2周可能引發股價大幅上漲的重大催化劑。
@@ -44,19 +44,45 @@ RISK_BATCH_PROMPT = """
 [{"risk_warning": "風險提示內容"}, ...]
 """
 
-JSON_ARRAY_PATTERN = re.compile(r'\[.*?\]', re.DOTALL)
-
 def _extract_json(text):
+    """增強版 JSON 提取，機能相容單一 Dict 與 Array 結構"""
+    if not text:
+        return None
+        
     text = re.sub(r'```json\s*', '', text)
     text = re.sub(r'```\s*', '', text)
     text = text.strip()
-    arr_match = JSON_ARRAY_PATTERN.search(text)
+    
+    # 策略 1：直接完整解析 JSON
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return [parsed]
+        if isinstance(parsed, list):
+            return parsed
+    except Exception:
+        pass
+        
+    # 策略 2：正則擷取 [...] 陣列
+    arr_match = re.search(r'\[.*?\]', text, re.DOTALL)
     if arr_match:
-        try: return json.loads(arr_match.group())
-        except: pass
+        try:
+            return json.loads(arr_match.group())
+        except Exception:
+            pass
+            
+    # 策略 3：正則擷取單一 {...} 物件並包裝成陣列
+    dict_match = re.search(r'\{.*?\}', text, re.DOTALL)
+    if dict_match:
+        try:
+            return [json.loads(dict_match.group())]
+        except Exception:
+            pass
+            
     return None
 
 def _call_gemini_with_backoff(client, news_batch, system_prompt):
+    """執行 Gemini API 調用，具備 Retry、Backoff 與回傳長度校驗機制"""
     prompt_parts = ["請按編號順序分析以下內容，嚴格按順序返回JSON數組：\n"]
     for idx, news in enumerate(news_batch, 1):
         stock_name = news.get("target_name", news.get("stock_name", "未知股票"))
@@ -74,6 +100,7 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
 """)
     prompt = "\n".join(prompt_parts)
     backoff_times = [60, 120]
+    
     for wait_time in backoff_times:
         try:
             resp = client.models.generate_content(
@@ -86,29 +113,41 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
                 )
             )
             result = _extract_json(resp.text)
-            if result and isinstance(result, list) and len(result) == len(news_batch):
-                return result
+            
+            if result and isinstance(result, list):
+                if len(result) == len(news_batch):
+                    return result
+                else:
+                    raise ValueError(f"AI返回長度不符 (返回{len(result)}，期望{len(news_batch)})")
+            else:
+                raise ValueError("無法解析出有效的 JSON Array")
+                
         except Exception as e:
             err_msg = str(e)[:120]
             if "429" in err_msg or "quota" in err_msg.lower():
                 print(f"[限流] 免費額度重置中，等待{wait_time}秒後重試...")
+                time.sleep(wait_time)
             else:
-                print(f"[重試] 調用失敗，等待{wait_time}秒: {err_msg}")
-            time.sleep(wait_time)
+                print(f"[重試] 調用或解析失敗，等待2秒重試: {err_msg}")
+                time.sleep(2)
+                
     if "風控" in system_prompt:
         return [{"risk_warning": "⚠️ 風險分析失敗，請自行查證"} for _ in news_batch]
     return [{"is_major_bullish": False, "score": 0} for _ in news_batch]
 
 def analyze_news_batch(news_list, all_news, api_key, threshold=85):
+    """批量新聞分析主流程"""
     client = genai.Client(api_key=api_key)
     valid_bullish = []
     total = len(news_list)
     batch_size = 35
+    
     for batch_idx in range(0, total, batch_size):
         batch = news_list[batch_idx:batch_idx+batch_size]
         batch_start = batch_idx + 1
         batch_end = min(batch_idx + batch_size, total)
         print(f"AI利好分析進度: [{batch_start}-{batch_end}/{total}] ...")
+        
         batch_results = _call_gemini_with_backoff(client, batch, SYSTEM_PROMPT)
         for news, result in zip(batch, batch_results):
             result.setdefault("is_major_bullish", False)
@@ -124,13 +163,14 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
             result["source"] = news["source"]
             result["target_code"] = news["target_code"]
             result["target_name"] = news["target_name"]
-            result["pub_time"] = news["pub_time"].strftime("%Y-%m-%d %H:%M")
+            result["pub_time"] = news["pub_time"].strftime("%Y-%m-%d %H:%M") if hasattr(news["pub_time"], 'strftime') else str(news["pub_time"])
+            
             if result["is_major_bullish"] and result["score"] >= threshold and result["confidence"] >= 70:
                 valid_bullish.append(result)
                 print(f"✅ 發現重大利好: {result['target_name']} {result['score']}分 {result['category']} | 緊急度:{result['urgency']}")
         time.sleep(6)
 
-    # 【新增】按股票代碼去重，同一隻股票只留最高分的一條，唔會重複推送
+    # 按股票代碼去重，同隻股票保留最高分新聞
     bullish_dict = {}
     for item in valid_bullish:
         code = item["target_code"]
@@ -139,7 +179,7 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
     valid_bullish = list(bullish_dict.values())
     print(f"✅ 去重後有效利好: {len(valid_bullish)} 隻股票")
 
-    # 風險分析：每隻股票只拿最新1條新聞，輸入輸出數量完全對應
+    # 進行風險預警批量分析
     if valid_bullish:
         print("="*50)
         print(f"開始對{len(valid_bullish)}隻利好股票做批量風險分析...")
@@ -147,9 +187,8 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
         risk_input = []
         for bull in valid_bullish:
             code = bull["target_code"]
-            related_news = [n for n in all_news if n["stock_code"] == code]
+            related_news = [n for n in all_news if n.get("stock_code") == code]
             if related_news:
-                # 按時間倒序，拿最新的1條新聞
                 related_news.sort(key=lambda x: x["pub_time"], reverse=True)
                 risk_input.append(related_news[0])
             else:
@@ -161,6 +200,7 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
                     "title": "近期無相關新聞",
                     "summary": ""
                 })
+        
         risk_results = _call_gemini_with_backoff(client, risk_input, RISK_BATCH_PROMPT)
         for i, bull in enumerate(valid_bullish):
             if i < len(risk_results):
