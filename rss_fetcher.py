@@ -38,7 +38,6 @@ STOCK_ALIAS = {
     "00016": ["新鴻基", "新鴻基地產", "SHK Properties"]
 }
 
-AASTOCKS_BASE = os.environ["AASTOCKS_RSS_BASE"]
 GOOGLE_NEWS_BASE = os.environ["GOOGLE_NEWS_RSS_BASE"]
 
 def _clean_html(raw_text):
@@ -49,7 +48,7 @@ def _clean_html(raw_text):
     clean = clean.replace("Read more", "").replace("閱讀更多", "").replace("繼續閱讀", "").replace("...", "").strip()
     return clean[:500]
 
-def _sleep(min_t=1.0, max_t=2.0):
+def _sleep(min_t=0.8, max_t=1.5):
     time.sleep(random.uniform(min_t, max_t))
 
 def _parse_publish_time(entry):
@@ -65,7 +64,6 @@ def _generate_match_keywords(stock):
     name = stock["name"]
     keywords_zh = set()
     keywords_en = set()
-    # 去掉HK.前綴再匹配代碼
     pure_code = code.replace("HK.", "").replace("hk.", "").strip()
     code_pattern = re.compile(r'(?<!\d)(0*' + re.escape(pure_code[-4:]) + r'|' + re.escape(pure_code) + r')(?!\d)(\.HK)?', re.IGNORECASE)
     keywords_zh.add(name)
@@ -98,7 +96,7 @@ def _build_google_news_query(stock):
 def _fetch_single_rss(url, source_name):
     news_list = []
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp = requests.get(url, headers=HEADERS, timeout=15)
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
         for entry in feed.entries:
@@ -117,12 +115,6 @@ def _fetch_single_rss(url, source_name):
         print(f"[警告] 抓取 {source_name} 失敗: {str(e)[:80]}")
     return news_list
 
-def fetch_aastocks_news(code):
-    # 【修復BUG】去掉HK.前綴，AASTOCKS只認純5位數字代碼
-    pure_code = code.replace("HK.", "").replace("hk.", "").strip()
-    url = f"{AASTOCKS_BASE}{pure_code}/0/all/1/rss"
-    return _fetch_single_rss(url, "AASTOCKS財經")
-
 def fetch_google_news(stock):
     query = _build_google_news_query(stock)
     url = f"{GOOGLE_NEWS_BASE}{query}&hl=zh-HK&gl=HK&ceid=HK:zh-HK"
@@ -131,11 +123,10 @@ def fetch_google_news(stock):
 def fetch_all_stock_rss(stock_list, config=None):
     if config is None:
         config = {
-            "enable_aastocks_rss": True,
-            "enable_google_rss": True,
+            "enable_google_rss": true,
             "crawl_batch_size": 10,
-            "batch_sleep_min": 3,
-            "batch_sleep_max": 7
+            "batch_sleep_min": 2,
+            "batch_sleep_max": 5
         }
     all_news = []
     seen_links = set()
@@ -145,18 +136,17 @@ def fetch_all_stock_rss(stock_list, config=None):
     shuffled_stocks = stock_list.copy()
     random.shuffle(shuffled_stocks)
     batch_size = config.get("crawl_batch_size", 10)
-    batch_sleep_min = config.get("batch_sleep_min", 3)
-    batch_sleep_max = config.get("batch_sleep_max", 7)
+    batch_sleep_min = config.get("batch_sleep_min", 2)
+    batch_sleep_max = config.get("batch_sleep_max", 5)
 
     for idx, stock in enumerate(shuffled_stocks):
         code = stock["code"]
         name = stock["name"]
         print(f"[{idx+1}/{total}] 正在抓取 {name}({code}) 新聞...")
 
-        aa_news = fetch_aastocks_news(code) if config.get("enable_aastocks_rss", True) else []
         gn_news = fetch_google_news(stock) if config.get("enable_google_rss", True) else []
 
-        for news in aa_news + gn_news:
+        for news in gn_news:
             if news["pub_time"] < time_threshold:
                 continue
             if news["link"] in seen_links:
@@ -166,7 +156,8 @@ def fetch_all_stock_rss(stock_list, config=None):
             news["stock_name"] = name
             all_news.append(news)
 
-        _sleep(0.5, 1.0)
+        # 每隻股票爬完等0.3-0.8秒
+        _sleep(0.3, 0.8)
 
         if (idx + 1) % batch_size == 0 and (idx + 1) != total:
             batch_wait = random.randint(batch_sleep_min, batch_sleep_max)
