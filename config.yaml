@@ -1,23 +1,23 @@
-# ========== 掃描速度配置（防封優先）
-scan_random_delay_max: 600        # 開頭隨機等待0-15分鐘錯峰
-per_request_sleep_min: 1.5        # 單RSS請求最小休眠1.5秒
-per_request_sleep_max: 3.0        # 單RSS請求最大休眠3秒
-crawl_batch_size: 10              # 每批爬多少隻股票
-batch_sleep_min: 5                # 每批爬完最小等待5秒
-batch_sleep_max: 10               # 每批爬完最大等待10秒
-news_valid_hour: 48               # 僅抓最近48小時新聞
+# ========== 掃描速度配置（單源提速，保持禮貌唔會被封）
+scan_random_delay_max: 180         # 開頭隨機等待0-3分鐘錯峰，唔會等太耐
+per_request_sleep_min: 0.8         # 單RSS請求最小休眠0.8秒
+per_request_sleep_max: 1.5         # 單RSS請求最大休眠1.5秒
+crawl_batch_size: 10               # 每批爬10隻股票
+batch_sleep_min: 2                 # 每批爬完最小等待2秒
+batch_sleep_max: 5                 # 每批爬完最大等待5秒
+news_valid_hour: 48                # 僅抓最近48小時新聞
 # ========== AI過濾配置
-bullish_min_score: 85             # 利好分數門檻
-filter_one_time_profit: true      # 過濾一次性收益
-filter_mou_intent: true           # 過濾無約束力意向書
-ai_batch_size: 35                 # AI每30條批量分析，大幅減少請求次數唔會限流
-ai_retry_count: 3                 # 指數退避重試3次
-# ========== 數據源開關（只留兩個最穩定的源）
-enable_webb_rss: false            # Webb-site
-enable_rsshub_hkex: false         # 公共RSSHub
-enable_aastocks_rss: false         # AASTOCKS
-enable_yahoo_rss: false           # Yahoo
-enable_google_rss: true           # Google News
+bullish_min_score: 85              # 利好分數門檻
+filter_one_time_profit: true       # 過濾一次性收益
+filter_mou_intent: true            # 過濾無約束力意向書
+ai_batch_size: 35                  # AI每35條批量分析
+ai_retry_count: 3                  # 指數退避重試3次
+# ========== 數據源開關（淨開Google News，AASTOCKS雲端用唔到關閉）
+enable_webb_rss: false
+enable_rsshub_hkex: false
+enable_aastocks_rss: false
+enable_yahoo_rss: false
+enable_google_rss: true
 # ========== 緩存配置
 enable_push_cache: true
 cache_expire_hour: 48
