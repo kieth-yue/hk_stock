@@ -38,7 +38,6 @@ STOCK_ALIAS = {
     "00016": ["新鴻基", "新鴻基地產", "SHK Properties"]
 }
 
-# 從環境變數強制讀源地址，代碼入面完全唔顯示真實地址
 AASTOCKS_BASE = os.environ["AASTOCKS_RSS_BASE"]
 GOOGLE_NEWS_BASE = os.environ["GOOGLE_NEWS_RSS_BASE"]
 
@@ -50,7 +49,7 @@ def _clean_html(raw_text):
     clean = clean.replace("Read more", "").replace("閱讀更多", "").replace("繼續閱讀", "").replace("...", "").strip()
     return clean[:500]
 
-def _sleep(min_t=1.5, max_t=3.0):
+def _sleep(min_t=1.0, max_t=2.0):
     time.sleep(random.uniform(min_t, max_t))
 
 def _parse_publish_time(entry):
@@ -66,7 +65,9 @@ def _generate_match_keywords(stock):
     name = stock["name"]
     keywords_zh = set()
     keywords_en = set()
-    code_pattern = re.compile(r'(?<!\d)(0*' + re.escape(code[-4:]) + r'|' + re.escape(code) + r')(?!\d)(\.HK)?', re.IGNORECASE)
+    # 去掉HK.前綴再匹配代碼
+    pure_code = code.replace("HK.", "").replace("hk.", "").strip()
+    code_pattern = re.compile(r'(?<!\d)(0*' + re.escape(pure_code[-4:]) + r'|' + re.escape(pure_code) + r')(?!\d)(\.HK)?', re.IGNORECASE)
     keywords_zh.add(name)
     core_name = name
     for prefix in COMMON_PREFIX:
@@ -75,8 +76,8 @@ def _generate_match_keywords(stock):
             break
     if len(core_name) >= 2:
         keywords_zh.add(core_name)
-    if code in STOCK_ALIAS:
-        for alias in STOCK_ALIAS[code]:
+    if pure_code in STOCK_ALIAS:
+        for alias in STOCK_ALIAS[pure_code]:
             if re.search(r'[a-zA-Z]', alias):
                 keywords_en.add(alias.lower())
             else:
@@ -86,9 +87,10 @@ def _generate_match_keywords(stock):
 def _build_google_news_query(stock):
     code = stock["code"]
     name = stock["name"]
-    query_parts = [f'"{code}"', f'"{name}"']
-    if code in STOCK_ALIAS:
-        for alias in STOCK_ALIAS[code]:
+    pure_code = code.replace("HK.", "").replace("hk.", "").strip()
+    query_parts = [f'"{pure_code}"', f'"{name}"']
+    if pure_code in STOCK_ALIAS:
+        for alias in STOCK_ALIAS[pure_code]:
             query_parts.append(f'"{alias}"')
     query = " OR ".join(query_parts) + " 港股"
     return urllib.parse.quote(query)
@@ -96,7 +98,6 @@ def _build_google_news_query(stock):
 def _fetch_single_rss(url, source_name):
     news_list = []
     try:
-        # 超時時間調到20秒，減少偶發超時
         resp = requests.get(url, headers=HEADERS, timeout=20)
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
@@ -117,7 +118,9 @@ def _fetch_single_rss(url, source_name):
     return news_list
 
 def fetch_aastocks_news(code):
-    url = f"{AASTOCKS_BASE}{code}/0/all/1/rss"
+    # 【修復BUG】去掉HK.前綴，AASTOCKS只認純5位數字代碼
+    pure_code = code.replace("HK.", "").replace("hk.", "").strip()
+    url = f"{AASTOCKS_BASE}{pure_code}/0/all/1/rss"
     return _fetch_single_rss(url, "AASTOCKS財經")
 
 def fetch_google_news(stock):
@@ -131,8 +134,8 @@ def fetch_all_stock_rss(stock_list, config=None):
             "enable_aastocks_rss": True,
             "enable_google_rss": True,
             "crawl_batch_size": 10,
-            "batch_sleep_min": 5,
-            "batch_sleep_max": 10
+            "batch_sleep_min": 3,
+            "batch_sleep_max": 7
         }
     all_news = []
     seen_links = set()
@@ -142,8 +145,8 @@ def fetch_all_stock_rss(stock_list, config=None):
     shuffled_stocks = stock_list.copy()
     random.shuffle(shuffled_stocks)
     batch_size = config.get("crawl_batch_size", 10)
-    batch_sleep_min = config.get("batch_sleep_min", 5)
-    batch_sleep_max = config.get("batch_sleep_max", 10)
+    batch_sleep_min = config.get("batch_sleep_min", 3)
+    batch_sleep_max = config.get("batch_sleep_max", 7)
 
     for idx, stock in enumerate(shuffled_stocks):
         code = stock["code"]
@@ -163,7 +166,7 @@ def fetch_all_stock_rss(stock_list, config=None):
             news["stock_name"] = name
             all_news.append(news)
 
-        _sleep(0.8, 1.5)
+        _sleep(0.5, 1.0)
 
         if (idx + 1) % batch_size == 0 and (idx + 1) != total:
             batch_wait = random.randint(batch_sleep_min, batch_sleep_max)
