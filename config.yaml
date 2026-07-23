@@ -15,9 +15,9 @@ ai_retry_count: 3                 # 指數退避重試3次
 # ========== 數據源開關（只留兩個最穩定的源）
 enable_webb_rss: false            # Webb-site
 enable_rsshub_hkex: false         # 公共RSSHub
-enable_aastocks_rss: true         # AASTOCKS
+enable_aastocks_rss: false         # AASTOCKS
 enable_yahoo_rss: false           # Yahoo
-enable_google_rss: false           # Google News
+enable_google_rss: true           # Google News
 # ========== 緩存配置
 enable_push_cache: true
 cache_expire_hour: 48
