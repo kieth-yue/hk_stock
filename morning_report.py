@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timedelta, timezone
 import requests
 from google import genai
@@ -92,20 +93,26 @@ def get_ai_market_analysis(api_key):
         user_prompt += "今日係周一，請重點搜尋周六日兩天的重大政策、行業新聞、公司公告，美股數據用上周五收盤即可。"
     
     client = genai.Client(api_key=api_key)
-    try:
-        resp = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0.2,
-                tools=[types.Tool(google_search=types.GoogleSearch())]
+    # 加一次重試，遇到429限流等10秒再試
+    for retry in range(2):
+        try:
+            resp = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.2,
+                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                )
             )
-        )
-        return resp.text.strip()
-    except Exception as e:
-        print(f"Gemini 生成失敗詳情: {e}")
-        return f"⚠️ 作戰卡生成失敗，請自行查看隔夜市場：{str(e)[:50]}"
+            return resp.text.strip()
+        except Exception as e:
+            if retry == 0 and "429" in str(e):
+                print("遇到限流，等10秒重試...")
+                time.sleep(10)
+            else:
+                print(f"Gemini 生成失敗詳情: {e}")
+                return f"⚠️ 作戰卡生成失敗，請自行查看隔夜市場：{str(e)[:50]}"
 
 if __name__ == "__main__":
     FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK")
