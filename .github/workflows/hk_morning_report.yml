@@ -1,0 +1,22 @@
+name: hk_morning_report
+on:
+  schedule:
+    - cron: '30 0 * * 1-5' # UTC時間0:30 = 香港時間8:30，周一至周五交易日
+  workflow_dispatch: # 保留手動觸發測試
+jobs:
+  morning_report_job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: 配置Python3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安裝依賴
+        run: pip install -r requirements.txt
+      - name: 生成並推送早盤策略
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python morning_report.py
