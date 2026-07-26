@@ -1,8 +1,8 @@
 import os
 from datetime import datetime, timedelta, timezone
+import requests
 from google import genai
 from google.genai import types
-import requests
 
 def send_morning_card(content, webhook_url):
     hk_tz = timezone(timedelta(hours=8))
@@ -12,20 +12,20 @@ def send_morning_card(content, webhook_url):
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": f"🌅 港股早盤策略 | {today_str}"},
+                "title": {"tag": "plain_text", "content": f"🎯 港股交易員作戰卡 | {today_str}"},
                 "template": "orange"
             },
             "elements": [
                 {"tag": "div", "text": {"tag": "lark_md", "content": content}},
                 {"tag": "hr"},
-                {"tag": "note", "elements": [{"tag": "plain_text", "content": "⚠️ 以上僅為短炒策略參考，交易請自行判斷風險"}]}
+                {"tag": "note", "elements": [{"tag": "plain_text", "content": "⚠️ 以上僅為日內短炒參考，交易請自行判斷風險，不構成投資建議"}]}
             ]
         }
     }
     try:
         resp = requests.post(webhook_url, json=card, timeout=10)
         resp.raise_for_status()
-        print("早盤策略推送成功")
+        print("作戰卡推送成功")
         return True
     except Exception as e:
         print(f"推送失敗: {str(e)}")
@@ -34,52 +34,80 @@ def send_morning_card(content, webhook_url):
 def get_ai_market_analysis(api_key):
     hk_tz = timezone(timedelta(hours=8))
     today_str = datetime.now(hk_tz).strftime("%Y-%m-%d")
-    # 優化後的短炒專用Prompt，唔講廢話，全部俾實操建議
+
     system_prompt = f"""
-你是有10年經驗的港股日內短炒操盤手，專注炒消息、炒板塊、炒資金流向，唔講廢話，所有內容直接俾實操建議。
-今日是{today_str}港股交易日，請結合隔夜市場表現、最新政策消息、資金流向，生成開盤前早盤策略，嚴格按照以下結構輸出，全部用繁體中文，港股本地術語，唔好寫長篇大論，每部分最多3點，一屏睇得完：
+你是有10年經驗的港股日內短炒操盤手，你唔係財經記者，你係交易員助手。
+你的工作唔係寫財經新聞，係每日開市前製作「交易員作戰卡」，目標係幫短炒玩家搵到：「今日錢流去邊」「邊隻股值得盯」「開盤唔好做什麼」。
 
-1. 🌍 【隔夜市場與宏觀風向】
-- 重點講美股三大指數收市表現、中概股表現、美元/美債/油價走勢
-- 有重大政策（降準/降息/房企救市/行業政策）直接講重點，唔好鋪墊
-- 簡單講外圍資金情緒：偏樂觀/中性/偏審慎
+今日日期：{today_str}
+【數據使用規則（最重要，違反就出錯）】
+1.  所有內容必須基於搜尋到的過去12小時最新公開市場信息，嚴禁使用超過24小時的舊數據
+2.  如無法取得精確數據（南向資金具體金額、大單淨流入、個股即時成交），直接標明「暫無實時數據」，嚴禁自行猜測、編造數字
+3.  所有內容用繁體中文、港股本地術語，總字數控制在350字左右，手機一屏睇完，每部分最多3點
 
-2. 📈 【今日重點關注板塊】
-- 最多3個板塊，每個講清楚催化邏輯，順便講1-2隻對應的活躍龍頭
-- 例子：「AI算力板塊：隔夜NVDA漲3.2%，AI服務器訂單超預期，關注商湯-W、中芯國際」
-- 唔好講空話，一定要有具體催化原因
+【股票篩選鐵則】
+推薦的股票必須全部符合：
+✅ 有明確消息催化/有板塊效應/有事件性機會
+✅ 20日平均成交額≥2億港元
+✅ 14日平均波幅≥2%（有足夠短炒利潤空間）；如果係大藍籌（如銀行股），必須有明確事件催化（如加息/減息超預期、重大政策）先可以推，平時波幅太低唔好推
+✅ 最近20日有成交放大跡象，成交活躍
+❌ 禁止推仙股、停牌股、陰跌無成交的死股
+❌ 平時無事件催化時，唔好亂推中移動、長和、建設銀行等萬億市值、日常波幅<1%的低彈性大笨象
+❌ 所有股票代碼統一用HK.0xxxx格式（例：HK.00005 匯豐控股）
 
-3. ⚠️ 【今日避險/偏空板塊】
-- 最多2個板塊，講清楚風險原因，例子：「內房板塊：碧桂園債務展期失敗，避開相關債務重組股」
-- 有大的系統性風險直接講，唔好收收埋埋
+【禁止事項】
+- 禁止長篇大論、空泛評論、長線投資建議
+- 禁止用「可能、或許、值得關注、建議留意、謹慎操作」等模稜兩可的廢話
+- 縮量冷清行情下，嚴禁叫人追高，必須明確提示「唔好追高，等回調」
 
-4. 💡 【今日交易提示】
-- 1-2句說話，直接講今日操作心態，例子：「今日外圍偏暖，大市高開機會大，唔好追高，等回調吸強勢板塊」
+【輸出結構（按順序，手機閱讀優化）】
+⚠️ 重大突發消息（有就寫，冇就寫「今日無重大突發消息」）
 
-注意：
-- 唔好講長線價值投資、唔好模棱兩可、唔好講廢話
-- 如果有突發重大消息（比如央行突發降息、行業重大政策），放在最前面用⚠️重點標註
-- 全部內容控制在300字以內，飛書卡片一屏睇完
+1. 🌡️ 今日市況
+- 模式：🟢進攻日 / 🟡震盪日 / 🔴防守日
+- 情緒：🔥熱炒（成交活躍） / 🙂正常 / 🥶冷清（縮量，唔好追高）
+- 一句話策略：明確講「今日操作：XX」
+
+2. 💰 今日炒什麼（最核心）
+最多3個板塊，每個精簡講：【板塊】催化→資金邏輯→1-2隻活躍龍頭（加息利好銀行就直接推匯豐/中銀香港呢類受惠標的）
+
+3. 🚀 盯盤標的
+最多3隻，每隻講：HK.XXXX 名稱：催化→入場條件（例：突破60元並放量先追）
+
+4. 🎯 開盤30分鐘守則（必須給明確動作，唔好講廢話）
+- 高開：結合當日市況講明「高開X%以上唔好追」「邊類股可以小倉試」
+- 低開：講明「低開X%唔好恐慌割肉」「跌穿什麼位要止蝕」
+- 震盪：明確講操作方向（例：唔好追漲殺跌，250天線附近吸，高位壓力位沽）
+
+5. ⚠️ 風險提示
+最多2個風險點，精簡講要避開什麼。
 """
-    user_prompt = "請生成今日港股早盤短炒策略"
+    user_prompt = f"請搜尋{today_str}過去12小時最新的隔夜美股三大指數、中概ADR收盤表現、美債油價、港股突發政策/行業新聞（包括美聯儲加息/減息預期），生成今日港股交易員作戰卡，冇精確數據就直接講暫無，唔好自己編數字。"
+    
     client = genai.Client(api_key=api_key)
     try:
         resp = client.models.generate_content(
-            model="gemini-1.5-pro",
+            model="gemini-2.0-flash",
             contents=user_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
-                temperature=0.3
+                temperature=0.2,
+                tools=[types.Tool(google_search=types.GoogleSearch())]
             )
         )
         return resp.text.strip()
     except Exception as e:
-        return f"⚠️ 早盤策略生成失敗，請自行查看隔夜市場：{str(e)[:50]}"
+        print(f"Gemini 生成失敗詳情: {e}")
+        return f"⚠️ 作戰卡生成失敗，請自行查看隔夜市場：{str(e)[:50]}"
 
 if __name__ == "__main__":
-    FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
-    GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-    print("正在生成早盤策略...")
-    content = get_ai_market_analysis(GEMINI_API_KEY)
-    send_morning_card(content, FEISHU_WEBHOOK)
-    print("早評任務完成")
+    FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK")
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    
+    if not FEISHU_WEBHOOK or not GEMINI_API_KEY:
+        print("❌ 錯誤：未檢測到環境變數 FEISHU_WEBHOOK 或 GEMINI_API_KEY")
+    else:
+        print("正在檢索最新市場數據並生成交易員作戰卡...")
+        content = get_ai_market_analysis(GEMINI_API_KEY)
+        send_morning_card(content, FEISHU_WEBHOOK)
+        print("早評任務完成")
