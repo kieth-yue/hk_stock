@@ -1,7 +1,7 @@
 name: hk_morning_report
 on:
   schedule:
-    - cron: '28 23 * * 0-4' # UTC時間0:30 = 香港時間7:28，周一至周五交易日
+    - cron: '23 0 * * 1-5' # UTC時間0:30 = 香港時間8:30，周一至周五交易日
   workflow_dispatch: # 保留手動觸發測試
 jobs:
   morning_report_job:
