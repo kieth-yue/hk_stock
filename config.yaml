@@ -5,7 +5,7 @@ per_request_sleep_max: 1.5         # 單RSS請求最大休眠1.5秒
 crawl_batch_size: 10               # 每批爬10隻股票
 batch_sleep_min: 2                 # 每批爬完最小等待2秒
 batch_sleep_max: 5                 # 每批爬完最大等待5秒
-news_valid_hour: 48                # 僅抓最近48小時新聞
+news_valid_hour: 36                # 僅抓最近36小時新聞
 # ========== AI過濾配置
 bullish_min_score: 88              # 利好分數門檻
 filter_one_time_profit: true       # 過濾一次性收益
