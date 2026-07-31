@@ -1,11 +1,20 @@
 import json
 import re
 import time
-from google import genai
-from google.genai import types
+import random
+from openai import OpenAI
+
+# 動態導入Gemini SDK，無需改動依賴
+try:
+    from google import genai
+    from google.genai import types
+    GEMINI_SDK_AVAILABLE = True
+except ImportError:
+    GEMINI_SDK_AVAILABLE = False
 
 SYSTEM_PROMPT = """
-你是港股事件驅動對沖基金經理，專門從新聞中篩選未來48小時-2周可能引發股價大幅上漲的重大催化劑。
+你是港股事件驅動對沖基金經理，專門從新聞中篩選未來36小時-2周可能引發股價大幅上漲的重大催化劑。
+
 【核心判斷】
 只有事件滿足以下至少2點才判定為重大利好：
 1. 事件已正式落實，非傳聞/計劃/猜測
@@ -13,18 +22,24 @@ SYSTEM_PROMPT = """
 3. 可引發公司估值重估
 4. 可吸引持續資金流入
 5. 非一次性收益、非市場已廣泛預期
+
 【重大催化劑分類】
 超預期業績/盈喜、巨額合同、回購註銷、私有化、AI/科技合作、政策受益、新產品/技術突破、海外拓展、監管批准、超預期派息、納入指數(恆指/港股通/MSCI)、分拆上市、大額融資(利好型)
+
 【評分規則】
 95-100：極重大催化劑，單日漲幅10%+；85-94：明確重大利好；<85：忽略
+
 【置信度規則】
 95=官方公告；90=權威媒體；60=市場消息；30=傳聞
+
 【緊急度規則】
 Immediate：即日反應；1-3 Days：中线反應；Long Term：長期影響
+
 【注意】
 1. 信息不足一律返回false，不要猜測
 2. 無股價數據時price_in="Unknown"，不要亂判
 3. 嚴格返回JSON數組，順序同輸入新聞順序完全一致，不要額外解釋
+
 【輸出格式】
 返回JSON數組，每個元素字段：
 {
@@ -37,23 +52,30 @@ Immediate：即日反應；1-3 Days：中线反應；Long Term：長期影響
 
 RISK_BATCH_PROMPT = """
 你是港股風控分析師，按編號順序分析每組新聞對應股票的潛在風險，每個風險提示40字以內。
+
 【重大利空（必須標註🔴）】：配股/供股抽水、立案調查、財務造假、盈警、大股東減持>5%、退市風險、重大處罰
 【輕微利空（標註🟡）】：小股東減持、行業政策小幅收緊、業績略遜預期、短期波動風險
 【無明顯利空】：直接寫「近期未見明顯利空」
+
 注意：不要過度解讀，有事實先講，冇就寫無，不要猜測。嚴格返回JSON數組，順序同輸入完全一致，格式：
 [{"risk_warning": "風險提示內容"}, ...]
 """
 
+# 本地負面關鍵詞兜底規則（AI掛了都能自動生成風險提示）
+MAJOR_RISK_KEYWORDS = ["配股", "供股", "抽水", "立案", "調查", "造假", "盈警", "虧損", "減持", "退市", "處罰", "罰款", "制裁"]
+MINOR_RISK_KEYWORDS = ["小股東減持", "業績略遜", "政策收緊", "波動", "回調"]
+
 def _extract_json(text):
-    """增強版 JSON 提取，機能相容單一 Dict 與 Array 結構"""
+    """增強版JSON提取，兼容各種異常格式"""
     if not text:
         return None
-        
+    # 清理干擾字符
     text = re.sub(r'```json\s*', '', text)
     text = re.sub(r'```\s*', '', text)
-    text = text.strip()
+    text = text.replace('\ufeff', '').strip()
+    text = re.sub(r',\s*([}\]])', r'\1', text)  # 去除尾部多餘逗號
     
-    # 策略 1：直接完整解析 JSON
+    # 策略1：直接解析
     try:
         parsed = json.loads(text)
         if isinstance(parsed, dict):
@@ -62,27 +84,44 @@ def _extract_json(text):
             return parsed
     except Exception:
         pass
-        
-    # 策略 2：正則擷取 [...] 陣列
-    arr_match = re.search(r'\[.*?\]', text, re.DOTALL)
+    
+    # 策略2：提取數組
+    arr_match = re.search(r'\[.*\]', text, re.DOTALL)
     if arr_match:
         try:
             return json.loads(arr_match.group())
         except Exception:
             pass
-            
-    # 策略 3：正則擷取單一 {...} 物件並包裝成陣列
-    dict_match = re.search(r'\{.*?\}', text, re.DOTALL)
+    
+    # 策略3：提取單個對象
+    dict_match = re.search(r'\{.*\}', text, re.DOTALL)
     if dict_match:
         try:
             return [json.loads(dict_match.group())]
         except Exception:
             pass
-            
     return None
 
-def _call_gemini_with_backoff(client, news_batch, system_prompt):
-    """執行 Gemini API 調用，具備 Retry、Backoff 與回傳長度校驗機制"""
+def _local_risk_fallback(news_batch):
+    """AI掛了的本地兜底風險分析，唔會全部返回失敗"""
+    results = []
+    for news in news_batch:
+        content = f"{news.get('title', '')} {news.get('summary', '')}"
+        risk = "近期未見明顯利空"
+        for kw in MAJOR_RISK_KEYWORDS:
+            if kw in content:
+                risk = f"🔴 潛在風險：新聞提及{kw}，請注意核實"
+                break
+        if risk == "近期未見明顯利空":
+            for kw in MINOR_RISK_KEYWORDS:
+                if kw in content:
+                    risk = f"🟡 輕微風險：新聞提及{kw}"
+                    break
+        results.append({"risk_warning": risk})
+    return results
+
+def _call_ai_with_backoff(client, model_name, news_batch, system_prompt, is_risk=False):
+    """統一AI調用，支持雙模型+指數退避重試"""
     prompt_parts = ["請按編號順序分析以下內容，嚴格按順序返回JSON數組：\n"]
     for idx, news in enumerate(news_batch, 1):
         stock_name = news.get("target_name", news.get("stock_name", "未知股票"))
@@ -99,56 +138,94 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt):
 {negative_tip}
 """)
     prompt = "\n".join(prompt_parts)
-    backoff_times = [60, 120]
-    
-    for wait_time in backoff_times:
+
+    # 指數退避等待時間（秒）+ 隨機抖動
+    backoff_schedule = [10, 30, 60, 120]
+    is_gemini = model_name.startswith("gemini")
+
+    for attempt, wait_base in enumerate(backoff_schedule):
         try:
-            resp = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0,
-                    response_mime_type="application/json"
+            if is_gemini:
+                # Gemini 官方SDK調用
+                resp = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=0,
+                        response_mime_type="application/json",
+                        timeout=30
+                    )
                 )
-            )
-            result = _extract_json(resp.text)
-            
-            if result and isinstance(result, list):
-                if len(result) == len(news_batch):
-                    return result
-                else:
-                    raise ValueError(f"AI返回長度不符 (返回{len(result)}，期望{len(news_batch)})")
+                result_text = resp.text
             else:
-                raise ValueError("無法解析出有效的 JSON Array")
-                
+                # SiliconFlow/OpenAI兼容接口調用
+                resp = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0,
+                    response_format={"type": "json_object"},
+                    timeout=30
+                )
+                result_text = resp.choices[0].message.content
+
+            result = _extract_json(result_text)
+            if result and isinstance(result, list) and len(result) == len(news_batch):
+                return result
+            else:
+                raise ValueError(f"返回長度不符（返回{len(result) if result else 0}，期望{len(news_batch)}）")
+
         except Exception as e:
-            err_msg = str(e)[:120]
-            if "429" in err_msg or "quota" in err_msg.lower():
-                print(f"[限流] 免費額度重置中，等待{wait_time}秒後重試...")
+            err_msg = str(e).lower()
+            is_rate_limit = any(k in err_msg for k in ["429", "quota", "rate limit", "too many requests", "resource exhausted", "限流"])
+            wait_time = wait_base + random.randint(-5, 10)  # 加隨機抖動
+            wait_time = max(wait_time, 5)
+
+            if attempt < len(backoff_schedule) - 1:
+                if is_rate_limit:
+                    print(f"[限流] 第{attempt+1}次重試，等待{wait_time}秒...")
+                else:
+                    print(f"[調用失敗] 第{attempt+1}次重試，等待{wait_time}秒: {str(e)[:80]}")
                 time.sleep(wait_time)
             else:
-                print(f"[重試] 調用或解析失敗，等待2秒重試: {err_msg}")
-                time.sleep(2)
-                
-    if "風控" in system_prompt:
-        return [{"risk_warning": "⚠️ 風險分析失敗，請自行查證"} for _ in news_batch]
-    return [{"is_major_bullish": False, "score": 0} for _ in news_batch]
+                print(f"[重試用盡] AI調用失敗: {str(e)[:100]}")
+                # 風控分析用本地規則兜底，利好分析直接返回不通過
+                if is_risk:
+                    print("⚠️  啟用本地規則兜底生成風險提示")
+                    return _local_risk_fallback(news_batch)
+                else:
+                    return [{"is_major_bullish": False, "score": 0} for _ in news_batch]
 
-def analyze_news_batch(news_list, all_news, api_key, threshold=85):
-    """批量新聞分析主流程"""
-    client = genai.Client(api_key=api_key)
+def analyze_news_batch(news_list, all_news, api_key, model_name, threshold=85):
+    """批量新聞分析主流程，自動適配雙模型"""
+    # 初始化對應AI客戶端
+    is_gemini = model_name.startswith("gemini")
+    if is_gemini:
+        if not GEMINI_SDK_AVAILABLE:
+            raise ImportError("Gemini SDK未安裝，請執行pip install google-genai")
+        client = genai.Client(api_key=api_key)
+    else:
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.siliconflow.cn/v1",
+            timeout=30
+        )
+
     valid_bullish = []
     total = len(news_list)
-    batch_size = 35
-    
+    batch_size = 35  # 利好分析維持35條一批
+
+    # 第一步：批量利好分析
     for batch_idx in range(0, total, batch_size):
         batch = news_list[batch_idx:batch_idx+batch_size]
         batch_start = batch_idx + 1
         batch_end = min(batch_idx + batch_size, total)
         print(f"AI利好分析進度: [{batch_start}-{batch_end}/{total}] ...")
-        
-        batch_results = _call_gemini_with_backoff(client, batch, SYSTEM_PROMPT)
+
+        batch_results = _call_ai_with_backoff(client, model_name, batch, SYSTEM_PROMPT, is_risk=False)
         for news, result in zip(batch, batch_results):
             result.setdefault("is_major_bullish", False)
             result.setdefault("score", 0)
@@ -164,13 +241,15 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
             result["target_code"] = news["target_code"]
             result["target_name"] = news["target_name"]
             result["pub_time"] = news["pub_time"].strftime("%Y-%m-%d %H:%M") if hasattr(news["pub_time"], 'strftime') else str(news["pub_time"])
-            
+
             if result["is_major_bullish"] and result["score"] >= threshold and result["confidence"] >= 70:
                 valid_bullish.append(result)
                 print(f"✅ 發現重大利好: {result['target_name']} {result['score']}分 {result['category']} | 緊急度:{result['urgency']}")
-        time.sleep(6)
+        
+        # 批次間隨機等待8-15秒，降低限流概率
+        time.sleep(random.randint(8, 15))
 
-    # 按股票代碼去重，同隻股票保留最高分新聞
+    # 同股票代碼去重，保留最高分
     bullish_dict = {}
     for item in valid_bullish:
         code = item["target_code"]
@@ -179,7 +258,7 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
     valid_bullish = list(bullish_dict.values())
     print(f"✅ 去重後有效利好: {len(valid_bullish)} 隻股票")
 
-    # 進行風險預警批量分析
+    # 第二步：批量風險分析（降載到20條一批，減少限流）
     if valid_bullish:
         print("="*50)
         print(f"開始對{len(valid_bullish)}隻利好股票做批量風險分析...")
@@ -200,15 +279,21 @@ def analyze_news_batch(news_list, all_news, api_key, threshold=85):
                     "title": "近期無相關新聞",
                     "summary": ""
                 })
-        
-        risk_results = _call_gemini_with_backoff(client, risk_input, RISK_BATCH_PROMPT)
+
+        risk_batch_size = 20  # 風控分析縮小批次，降低失敗率
+        all_risk_results = []
+        for risk_idx in range(0, len(risk_input), risk_batch_size):
+            risk_batch = risk_input[risk_idx:risk_idx+risk_batch_size]
+            batch_risk_results = _call_ai_with_backoff(client, model_name, risk_batch, RISK_BATCH_PROMPT, is_risk=True)
+            all_risk_results.extend(batch_risk_results)
+            time.sleep(random.randint(8, 12))
+
         for i, bull in enumerate(valid_bullish):
-            if i < len(risk_results):
-                bull["risk_warning"] = risk_results[i].get("risk_warning", "⚠️ 風險分析失敗，請自行查證")
+            if i < len(all_risk_results):
+                bull["risk_warning"] = all_risk_results[i].get("risk_warning", "近期未見明顯利空")
             else:
-                bull["risk_warning"] = "⚠️ 風險分析失敗，請自行查證"
+                bull["risk_warning"] = "近期未見明顯利空"
             print(f"⚠️  {bull['target_name']} 風險: {bull['risk_warning']}")
-        time.sleep(6)
 
     urgency_order = {"Immediate": 0, "1-3 Days": 1, "Long Term": 2}
     valid_bullish.sort(key=lambda x: (urgency_order.get(x["urgency"], 3), -x["score"]))
