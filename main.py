@@ -102,7 +102,7 @@ def run_single_pool(mode, config):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["pool1", "pool2"], default=None,
-                        help="手動指定執行單個池，不指定則自動根據時間/配置執行")
+                        help="手動指定執行單個池，不指定則自動根據觸發方式/配置執行")
     args = parser.parse_args()
 
     # 讀取配置文件
@@ -113,44 +113,39 @@ def main():
     if args.mode:
         run_single_pool(args.mode, config)
     else:
-        # 自動模式：先判斷是否Cron觸發，匹配對應時間窗口
+        # 判斷觸發方式：手動觸發/定時觸發
+        event_name = os.getenv("GITHUB_EVENT_NAME", "workflow_dispatch")
         utc_now = datetime.now(timezone.utc)
-        hkt_now = utc_now + timedelta(hours=8)  # 轉香港時間
-        hkt_hour = hkt_now.hour
-        hkt_minute = hkt_now.minute
-        run_pool1 = False
-        run_pool2 = False
-        is_cron_trigger = False
+        hkt_now = utc_now + timedelta(hours=8)
 
-        # Pool2時間窗口（容許10分鐘Cron延遲）
-        if hkt_hour == 6 and 40 <= hkt_minute <= 60:    # HKT 06:00
-            run_pool2 = True
-            is_cron_trigger = True
-        elif hkt_hour == 12 and 20 <= hkt_minute <= 40: # HKT 12:30
-            run_pool2 = True
-            is_cron_trigger = True
-        elif hkt_hour == 21 and 40 <= hkt_minute <= 60: # HKT 21:00
-            run_pool2 = True
-            is_cron_trigger = True
-        # Pool1時間窗口（容許10分鐘Cron延遲）
-        elif hkt_hour == 7 and 20 <= hkt_minute <= 40:  # HKT 07:30
-            run_pool1 = True
-            is_cron_trigger = True
-        elif hkt_hour == 11 and 0 <= hkt_minute <= 20:  # HKT 11:10
-            run_pool1 = True
-            is_cron_trigger = True
-        elif hkt_hour == 23 and 40 <= hkt_minute <= 60: # HKT 23:00
-            run_pool1 = True
-            is_cron_trigger = True
-
-        if not is_cron_trigger:
-            # 手動觸發：串行跑所有config開了的池
-            print("⚙️  手動觸發模式：根據config.yaml開關串行執行對應股票池")
+        if event_name == "workflow_dispatch":
+            # 手動觸發：唔理時間，直接跑所有開了的池
+            print(f"⚙️  手動觸發模式（HKT時間：{hkt_now.strftime('%Y-%m-%d %H:%M')}），自動執行所有已開啟的股票池")
             run_single_pool("pool2", config)
             run_single_pool("pool1", config)
         else:
-            # Cron定時觸發：只跑對應時間的池
-            print(f"⏰ 當前HKT時間：{hkt_now.strftime('%Y-%m-%d %H:%M')}，自動執行對應時段任務")
+            # 定時Cron觸發：按時間窗口跑對應池
+            hkt_hour = hkt_now.hour
+            hkt_minute = hkt_now.minute
+            run_pool1 = False
+            run_pool2 = False
+
+            print(f"⏰ 定時觸發模式，當前HKT時間：{hkt_now.strftime('%Y-%m-%d %H:%M')}，自動執行對應時段任務")
+            # Pool2時間窗口（容許10分鐘Cron延遲）
+            if hkt_hour == 6 and 40 <= hkt_minute <= 60:    # HKT 06:00
+                run_pool2 = True
+            elif hkt_hour == 12 and 20 <= hkt_minute <= 40: # HKT 12:30
+                run_pool2 = True
+            elif hkt_hour == 21 and 40 <= hkt_minute <= 60: # HKT 21:00
+                run_pool2 = True
+            # Pool1時間窗口（容許10分鐘Cron延遲）
+            elif hkt_hour == 7 and 20 <= hkt_minute <= 40:  # HKT 07:30
+                run_pool1 = True
+            elif hkt_hour == 11 and 0 <= hkt_minute <= 20:  # HKT 11:10
+                run_pool1 = True
+            elif hkt_hour == 23 and 40 <= hkt_minute <= 60: # HKT 23:00
+                run_pool1 = True
+
             if run_pool2:
                 run_single_pool("pool2", config)
             if run_pool1:
