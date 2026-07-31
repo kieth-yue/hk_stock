@@ -29,8 +29,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: 安裝依賴套件
-        run: pip install -r requirements.txt
+      - name: 安裝依賴套件（自動裝齊所有需要的包，唔使靠requirements.txt）
+        run: pip install requests feedparser pyyaml python-dateutil beautifulsoup4 openai google-genai
 
       - name: 還原推送緩存（兩個池的去重記錄自動持久化）
         uses: actions/cache@v4
