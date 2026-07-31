@@ -1,5 +1,5 @@
 # ========== 股票池開關（false就關閉對應池，Cron觸發都唔會跑）
-enable_stock_pool1: false   # 主池300隻（Gemini 2.5 Flash）
+enable_stock_pool1: true   # 主池300隻（Gemini 2.5 Flash）
 enable_stock_pool2: true   # 副池250隻（SiliconFlow GLM）
 
 # ========== 掃描速度配置（單源提速，保持禮貌唔會被封）
