@@ -3,20 +3,53 @@ import time
 import json
 import os
 import yaml
+import argparse
 from rss_fetcher import fetch_all_stock_rss, match_news_to_stocks
 from ai_filter import analyze_news_batch
 from feishu_push import send_feishu_card
 
 def main():
+    # 解析命令行參數
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["pool1", "pool2"], default="pool1", 
+                        help="運行模式：pool1=300隻Gemini主池, pool2=250隻GLM副池")
+    args = parser.parse_args()
+
     with open("config.yaml", "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     
-    stock_pool_raw = os.environ["STOCK_POOL"]
-    stock_list = json.loads(stock_pool_raw)
-    FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
-    GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+    # 讀取股票池開關（預設全開，向後兼容舊config）
+    enable_pool1 = config.get("enable_stock_pool1", True)
+    enable_pool2 = config.get("enable_stock_pool2", True)
 
-    cache_file = config["cache_file"]
+    # 根據模式+開關決定是否執行
+    if args.mode == "pool1":
+        if not enable_pool1:
+            print("⚠️  主池Pool1（300隻）已在config.yaml中關閉，跳過執行")
+            return
+        # 加載主池配置
+        stock_pool_raw = os.environ["STOCK_POOL"]
+        api_key = os.environ["GEMINI_API_KEY"]
+        model_name = "gemini-2.5-flash"
+        cache_file = "push_cache_pool1.json"
+        print(f"🚀 啟動模式：主池Pool1（300隻股票，Gemini 2.5 Flash）")
+    else:
+        if not enable_pool2:
+            print("⚠️  副池Pool2（250隻）已在config.yaml中關閉，跳過執行")
+            return
+        # 加載副池配置
+        stock_pool_raw = os.environ["STOCK_POOL_2"]
+        api_key = os.environ["SILICONFLOW_API_KEY"]
+        model_name = "THUDM/GLM-Z1-9B-0414"
+        cache_file = "push_cache_pool2.json"
+        print(f"🚀 啟動模式：副池Pool2（250隻股票，SiliconFlow GLM-Z1-9B）")
+
+    # 解析股票池
+    data = json.loads(stock_pool_raw)
+    stock_list = data["stock_pool"]
+    FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
+
+    # 加載推送緩存
     cache_set = set()
     if os.path.exists(cache_file) and config["enable_push_cache"]:
         with open(cache_file, "r", encoding="utf-8") as f:
@@ -30,7 +63,7 @@ def main():
     time.sleep(wait_time)
 
     print("="*50)
-    print("開始掃描新聞")
+    print("開始掃描新聞（僅抓取36小時內新聞）")
     print("="*50)
 
     all_raw_news = fetch_all_stock_rss(stock_list, config)
@@ -46,8 +79,8 @@ def main():
     print("="*50)
     print("開始AI智能分析")
     print("="*50)
-    # 傳入all_raw_news做風險分析
-    valid_bullish = analyze_news_batch(match_news, all_raw_news, GEMINI_API_KEY, config["bullish_min_score"])
+    # 傳入對應API Key、模型、分數閾值
+    valid_bullish = analyze_news_batch(match_news, all_raw_news, api_key, model_name, config["bullish_min_score"])
 
     push_list = []
     for item in valid_bullish:
