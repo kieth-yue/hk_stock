@@ -7,11 +7,12 @@ import urllib.parse
 import os
 from datetime import datetime, timedelta, timezone
 
-# 全局請求頭
+# 全局請求頭（優化為真實Chrome UA，減少被攔截）
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; PersonalStockMonitor/1.0; RSS Feed Reader; Non-commercial personal use)",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
     "Accept-Language": "zh-HK,zh;q=0.9,en;q=0.8",
-    "Accept": "application/rss+xml,application/xml;q=0.9,*/*;q=0.8"
+    "Accept": "application/rss+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Referer": "https://news.google.com/"
 }
 
 NEGATIVE_HINT_ZH = ["盈警", "虧損", "預虧", "業績倒退", "純利跌", "減持", "配股", "供股", "抽水", "攤薄", "批股", "處罰", "罰款", "召回", "制裁", "破產", "清盤", "除牌", "停牌", "調查", "起訴", "訴訟", "造假", "欺詐", "暴跌", "大跌", "下調", "降級"]
@@ -123,14 +124,17 @@ def fetch_google_news(stock):
 def fetch_all_stock_rss(stock_list, config=None):
     if config is None:
         config = {
-            "enable_google_rss": true,
+            "enable_google_rss": True,
             "crawl_batch_size": 10,
             "batch_sleep_min": 2,
-            "batch_sleep_max": 5
+            "batch_sleep_max": 5,
+            "news_valid_hour": 36
         }
     all_news = []
     seen_links = set()
-    time_threshold = datetime.now(timezone.utc) - timedelta(hours=36)
+    # 自動讀取config嘅新聞時效，默認36小時
+    news_valid_hour = config.get("news_valid_hour", 36)
+    time_threshold = datetime.now(timezone.utc) - timedelta(hours=news_valid_hour)
     total = len(stock_list)
 
     shuffled_stocks = stock_list.copy()
@@ -138,6 +142,8 @@ def fetch_all_stock_rss(stock_list, config=None):
     batch_size = config.get("crawl_batch_size", 10)
     batch_sleep_min = config.get("batch_sleep_min", 2)
     batch_sleep_max = config.get("batch_sleep_max", 5)
+    req_sleep_min = config.get("per_request_sleep_min", 0.8)
+    req_sleep_max = config.get("per_request_sleep_max", 1.5)
 
     for idx, stock in enumerate(shuffled_stocks):
         code = stock["code"]
@@ -156,8 +162,8 @@ def fetch_all_stock_rss(stock_list, config=None):
             news["stock_name"] = name
             all_news.append(news)
 
-        # 每隻股票爬完等0.3-0.8秒
-        _sleep(0.3, 0.8)
+        # 每隻股票爬完按config設定休眠
+        _sleep(req_sleep_min, req_sleep_max)
 
         if (idx + 1) % batch_size == 0 and (idx + 1) != total:
             batch_wait = random.randint(batch_sleep_min, batch_sleep_max)
