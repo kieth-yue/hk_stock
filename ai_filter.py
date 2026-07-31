@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 
 SYSTEM_PROMPT = """
-你是港股事件驅動對沖基金經理，專門從新聞中篩選未來36小時-2周可能引發股價大幅上漲的重大催化劑。
+你是港股事件驅動對沖基金經理，專門從新聞中篩選未來48小時-2周可能引發股價大幅上漲的重大催化劑。
 
 【核心判斷】
 只有事件滿足以下至少2點才判定為重大利好：
@@ -124,15 +124,16 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt, is_risk=False):
     backoff_schedule = [10, 20, 40, 60]
     for attempt, wait_base in enumerate(backoff_schedule):
         try:
+            # 修復：timeout放喺request_options入面，唔好放喺config
             resp = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     temperature=0,
-                    response_mime_type="application/json",
-                    timeout=60
-                )
+                    response_mime_type="application/json"
+                ),
+                request_options={"timeout": 60}
             )
             result = _extract_json(resp.text)
             if result and isinstance(result, list) and len(result) == len(news_batch):
@@ -141,7 +142,7 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt, is_risk=False):
                 raise ValueError(f"返回長度不符（返回{len(result) if result else 0}，期望{len(news_batch)}）")
         except Exception as e:
             err_msg = str(e).lower()
-            is_need_backoff = any(k in err_msg for k in ["429", "quota", "rate limit", "too many requests", "resource exhausted", "timeout", "timed out"])
+            is_need_backoff = any(k in err_msg for k in ["429", "quota", "rate limit", "too many requests", "resource exhausted", "timeout", "timed out", "validation"])
             wait_time = wait_base + random.randint(-3, 7)
             wait_time = max(wait_time, 8)
             if attempt < len(backoff_schedule) - 1:
