@@ -124,7 +124,7 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt, is_risk=False):
     backoff_schedule = [10, 20, 40, 60]
     for attempt, wait_base in enumerate(backoff_schedule):
         try:
-            # 修復：timeout放喺request_options入面，唔好放喺config
+            # 刪除多餘參數，兼容所有版本SDK
             resp = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
@@ -132,8 +132,7 @@ def _call_gemini_with_backoff(client, news_batch, system_prompt, is_risk=False):
                     system_instruction=system_prompt,
                     temperature=0,
                     response_mime_type="application/json"
-                ),
-                request_options={"timeout": 60}
+                )
             )
             result = _extract_json(resp.text)
             if result and isinstance(result, list) and len(result) == len(news_batch):
