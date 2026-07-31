@@ -130,7 +130,7 @@ def fetch_all_stock_rss(stock_list, config=None):
         }
     all_news = []
     seen_links = set()
-    time_threshold = datetime.now(timezone.utc) - timedelta(hours=48)
+    time_threshold = datetime.now(timezone.utc) - timedelta(hours=36)
     total = len(stock_list)
 
     shuffled_stocks = stock_list.copy()
