@@ -2,7 +2,7 @@ name: hk_news
 
 on:
   schedule:
-    # ========== Pool2（250隻 GLM）HKT 06:00/12:30/21:00 周一至周五 ==========
+    # ========== Pool2（250隻 Gemini）HKT 06:00/12:30/21:00 周一至周五 ==========
     - cron: '0 22 * * 0-4'    # HKT 06:00（UTC前一日22:00，周日-周四對應HKT周一-周五）
     - cron: '30 4 * * 1-5'    # HKT 12:30（UTC 04:30，周一-周五）
     - cron: '0 13 * * 1-5'    # HKT 21:00（UTC 13:00，周一-周五）
@@ -30,7 +30,7 @@ jobs:
           python-version: "3.12"
 
       - name: 安裝依賴套件（自動裝齊所有需要的包，唔使靠requirements.txt）
-        run: pip install requests feedparser pyyaml python-dateutil beautifulsoup4 openai google-genai
+        run: pip install requests feedparser pyyaml python-dateutil beautifulsoup4 google-genai
 
       - name: 還原推送緩存（兩個池的去重記錄自動持久化）
         uses: actions/cache@v4
@@ -42,7 +42,6 @@ jobs:
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
           STOCK_POOL: ${{ secrets.STOCK_POOL }}
           STOCK_POOL_2: ${{ secrets.STOCK_POOL_2 }}
           AASTOCKS_RSS_BASE: ${{ secrets.AASTOCKS_RSS_BASE }}
