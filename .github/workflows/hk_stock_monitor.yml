@@ -2,17 +2,14 @@ name: hk_news
 
 on:
   schedule:
-    # ========== Pool2（250隻 Gemini）HKT 06:00/12:30/21:00 周一至周五 ==========
-    - cron: '0 22 * * 0-4'    # HKT 06:00（UTC前一日22:00，周日-周四對應HKT周一-周五）
-    - cron: '30 4 * * 1-5'    # HKT 12:30（UTC 04:30，周一-周五）
-    - cron: '0 13 * * 1-5'    # HKT 21:00（UTC 13:00，周一-周五）
-    # ========== Pool1（300隻 Gemini）HKT 07:30/11:10/23:00 周一至周五 ==========
-    - cron: '30 23 * * 0-4'   # HKT 07:30（UTC前一日23:30，周日-周四對應HKT周一-周五）
-    - cron: '10 3 * * 1-5'    # HKT 11:10（UTC 03:10，周一-周五）
-    - cron: '0 15 * * 1-5'    # HKT 23:00（UTC 15:00，周一-周五）
-  workflow_dispatch: # 手動觸發：自動跑config開了的池，方便測試
+    # 全部用整數時間，合法cron語法，一定會正常啟動，每日5次，HKT周一至周五
+    - cron: '0 22 * * 0-4'    # HKT 06:00 開市前
+    - cron: '0 3 * * 1-5'     # HKT 11:00 午間
+    - cron: '0 8 * * 1-5'     # HKT 16:00 收市後
+    - cron: '0 13 * * 1-5'    # HKT 21:00 晚間
+    - cron: '30 15 * * 1-5'   # HKT 23:30 睡前最後一次
+  workflow_dispatch: # 手動觸發
 
-# 全局串行鎖：同一時間只跑一個任務，新任務排隊等，絕不斬斷正在爬的任務
 concurrency:
   group: hk-news-global-serial
   cancel-in-progress: false
@@ -23,22 +20,18 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-
       - name: 配置Python3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: 安裝依賴套件（自動裝齊所有需要的包，唔使靠requirements.txt）
+      - name: 安裝依賴
         run: pip install requests feedparser pyyaml python-dateutil beautifulsoup4 google-genai
-
-      - name: 還原推送緩存（兩個池的去重記錄自動持久化）
+      - name: 還原推送緩存
         uses: actions/cache@v4
         with:
           path: push_cache_*.json
           key: ${{ runner.os }}-hk-stock-dual-pool-cache
-
-      - name: 執行掃描與AI分析
+      - name: 執行掃描
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
