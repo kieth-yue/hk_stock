@@ -30,10 +30,14 @@ def run_single_pool(mode, config):
         print(f"🚀 開始執行：副池Pool2（250隻股票，Gemini 2.5 Flash）")
         print(f"{'='*60}")
     
-    # 統一用Gemini API
     api_key = os.environ["GEMINI_API_KEY"]
+    # 兼容兩種JSON格式：直接數組 / 外層包{"stock_pool": [...]}
     data = json.loads(stock_pool_env)
-    stock_list = data["stock_pool"]
+    if isinstance(data, list):
+        stock_list = data
+    else:
+        stock_list = data["stock_pool"]
+    
     FEISHU_WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 
     cache_set = set()
