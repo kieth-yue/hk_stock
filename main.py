@@ -116,18 +116,28 @@ def main():
             run_pool2 = False
 
             print(f"⏰ 定時觸發模式，當前HKT時間：{hkt_now.strftime('%Y-%m-%d %H:%M')}，自動執行對應時段任務")
-            if hkt_hour == 6 and 40 <= hkt_minute <= 60:
+            
+            # 放大容錯窗口到1.5-2小時，覆蓋GitHub Cron最誇張的延遲，窗口之間互不重疊
+            # Pool2 06:00 窗口：05:50 - 07:20
+            if (hkt_hour == 5 and hkt_minute >= 50) or (hkt_hour == 6) or (hkt_hour == 7 and hkt_minute <= 20):
                 run_pool2 = True
-            elif hkt_hour == 12 and 20 <= hkt_minute <= 40:
+            # Pool1 07:30 窗口：07:20 - 09:00
+            elif (hkt_hour == 7 and hkt_minute >= 20) or (hkt_hour == 8) or (hkt_hour == 9 and hkt_minute == 0):
+                run_pool1 = True
+            # Pool1 11:10 窗口：11:00 - 12:20
+            elif (hkt_hour == 11) or (hkt_hour == 12 and hkt_minute <= 20):
+                run_pool1 = True
+            # Pool2 12:30 窗口：12:20 - 14:30（覆蓋你而家13:37的延遲場景）
+            elif (hkt_hour == 12 and hkt_minute >= 20) or (hkt_hour == 13) or (hkt_hour == 14 and hkt_minute <= 30):
                 run_pool2 = True
-            elif hkt_hour == 21 and 40 <= hkt_minute <= 60:
+            # Pool2 21:00 窗口：20:50 - 22:30
+            elif (hkt_hour == 20 and hkt_minute >= 50) or (hkt_hour == 21) or (hkt_hour == 22 and hkt_minute <= 30):
                 run_pool2 = True
-            elif hkt_hour == 7 and 20 <= hkt_minute <= 40:
+            # Pool1 23:00 窗口：22:30 - 00:30
+            elif (hkt_hour == 22 and hkt_minute >= 30) or (hkt_hour == 23) or (hkt_hour == 0 and hkt_minute <= 30):
                 run_pool1 = True
-            elif hkt_hour == 11 and 0 <= hkt_minute <= 20:
-                run_pool1 = True
-            elif hkt_hour == 23 and 40 <= hkt_minute <= 60:
-                run_pool1 = True
+            else:
+                print("⚠️  當前時間不在任何預設觸發窗口內，可能是Cron延遲超過2小時，跳過執行")
 
             if run_pool2:
                 run_single_pool("pool2", config)
