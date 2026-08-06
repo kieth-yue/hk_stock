@@ -2,14 +2,17 @@ name: hk_news
 
 on:
   schedule:
-    # 全部用整數時間，合法cron語法，一定會正常啟動，每日5次，HKT周一至周五
-    - cron: '0 22 * * 0-4'    # HKT 06:00 開市前
-    - cron: '0 3 * * 1-5'     # HKT 11:00 午間
-    - cron: '0 8 * * 1-5'     # HKT 16:00 收市後
-    - cron: '0 13 * * 1-5'    # HKT 21:00 晚間
-    - cron: '30 15 * * 1-5'   # HKT 23:30 睡前最後一次
-  workflow_dispatch: # 手動觸發
+    # HKT 07:00 周一至周五
+    - cron: '0 23 * * 0-4'
+    # HKT 09:30 周一至周五
+    - cron: '30 1 * * 1-5'
+    # HKT 12:30 周一至周五
+    - cron: '30 4 * * 1-5'
+    # HKT 21:00 周一至周五
+    - cron: '0 13 * * 1-5'
+  workflow_dispatch: # 手動觸發：直接跑兩個池
 
+# 全局串行鎖
 concurrency:
   group: hk-news-global-serial
   cancel-in-progress: false
@@ -20,18 +23,22 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+
       - name: 配置Python3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: 安裝依賴
+
+      - name: 安裝依賴套件
         run: pip install requests feedparser pyyaml python-dateutil beautifulsoup4 google-genai
+
       - name: 還原推送緩存
         uses: actions/cache@v4
         with:
           path: push_cache_*.json
           key: ${{ runner.os }}-hk-stock-dual-pool-cache
-      - name: 執行掃描
+
+      - name: 執行掃描（先300隻再250隻）
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
